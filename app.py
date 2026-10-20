@@ -17,6 +17,9 @@ def get_global_games():
 
 GAMES = get_global_games()
 
+if "faq_chat" not in st.session_state:
+    st.session_state.faq_chat = []
+
 def save_game_to_disk(room):
     with open(f"save_{room['room_code']}.json", "w", encoding="utf-8") as f:
         json.dump(room, f, indent=4, ensure_ascii=False)
@@ -47,34 +50,30 @@ PRODUCT_UNIVERSES = [
 ]
 
 # ==========================================
-# 3. ANALYSE DU NOM D'ENTREPRISE (CRITÈRES)
+# 3. ANALYSE DU NOM D'ENTREPRISE 
 # ==========================================
 def analyze_company_name(name):
     name_l = name.lower()
     score = 0.0
+    troll_words = ["caca", "pipi", "boudin", "prout", "zizi", "bite", "cul", "merde", "con", "fuck", "shit", "mort", "kill", "pute", "salaud", "lol", "mdr", "xd", "ptdr", "swag", "yolo", "test", "truc", "machin", "bidule", "chouette"]
     
-    # Critères Négatifs
-    offensive_words = ["merde", "con", "fuck", "shit", "mort", "kill", "pute", "salaud"]
-    if any(w in name_l for w in offensive_words): score -= 0.10
-    elif len(name.strip()) <= 1 or name.strip().isdigit(): score -= 0.09
-    elif not name.replace(" ", "").isalnum(): score -= 0.08
+    if any(w in name_l for w in troll_words): score -= 0.10
+    elif len(name.strip()) <= 2 or name.strip().isdigit(): score -= 0.09
+    elif len(set(name_l.replace(" ", ""))) < 3: score -= 0.09
+    elif not name.replace(" ", "").replace("-", "").isalnum(): score -= 0.08
     elif len(name) > 25: score -= 0.03
-    elif name.strip().lower() in ["entreprise", "societe", "compagnie", "shop"]: score -= 0.02
+    elif name.strip().lower() in ["entreprise", "societe", "compagnie", "shop", "boite"]: score -= 0.02
     
-    # Critères Positifs
     if "eco" in name_l or "green" in name_l or "bio" in name_l or "durable" in name_l: score += 0.06
     if "tech" in name_l or "future" in name_l or "inov" in name_l or "smart" in name_l: score += 0.07
     if "global" in name_l or "world" in name_l or "international" in name_l: score += 0.10
     if "premium" in name_l or "luxury" in name_l or "elite" in name_l: score += 0.04
-    if len(name) <= 8 and name.isalnum(): score += 0.05 # Mémorable
     
-    if score == 0.0 and len(name) > 3:
-        score = 0.02 # Clair et explicite par défaut
-        
+    if 4 <= len(name) <= 9 and name.isalnum() and score >= 0: score += 0.05
     return max(-0.10, min(0.10, score))
 
 # ==========================================
-# 4. MOTEUR MATHÉMATIQUE & RÈGLES
+# 4. MOTEUR MATHÉMATIQUE
 # ==========================================
 def fmt_k(amount):
     if amount is None: return "0,0 K€"
@@ -110,14 +109,10 @@ def get_hr_metrics(employees, salary, quality_budget, training_budget, base_time
     }
 
 def get_popularity_gauges(comp, decs):
-    # Jauge RSE (0 à 100)
     rse_val = decs.get("rse_budget", 0) + comp.get("rse_cumul", 0)
     rse_score = min(100.0, (rse_val / 30000.0) * 100)
-    
-    # Jauge Qualité (0 à 100)
     qual_val = decs.get("quality", 0)
     qual_score = min(100.0, (qual_val / 20000.0) * 100)
-    
     popularity = (rse_score * 0.4) + (qual_score * 0.6)
     return rse_score, qual_score, popularity
 
@@ -134,7 +129,7 @@ def get_theo_demand(base_demand, price, bench_price, marketing, quality, rse, cl
     rse_factor = min(1.15, 1.0 + (rse / 20000.0))
     terms_factor = min(1.2, 1.0 + (client_terms / 90.0) * 0.2)
     brand_factor = min(1.5, 1.0 + (brand_aw / 100.0) * 0.5)
-    pop_factor = 1.0 + (popularity / 200.0) # Impact de la popularité globale
+    pop_factor = 1.0 + (popularity / 200.0)
     
     demand = base_demand * price_factor * mkt_factor * qual_factor * rse_factor * terms_factor * brand_factor * pop_factor * suspicion_penalty
     return min(demand, base_demand * 4.0)
@@ -169,12 +164,9 @@ def calculate_forecast(comp, decs, product, is_prod_phase, num_teams, market_gro
     forecast_sales_input = decs.get("forecast_sales", 0)
     purchase_qty = decs.get("purchase_qty", 0)
     
-    espionnage_level = decs.get("espionnage", 0)
-    sabotage_type = decs.get("sabotage_type", 0)
-
     esp_costs = {0: 0, 1: 5000, 2: 20000, 3: 50000, 4: 100000}
     sab_costs = {0: 0, 1: 200000, 2: 300000, 3: 500000}
-    intel_cost = esp_costs.get(espionnage_level, 0) + sab_costs.get(sabotage_type, 0)
+    intel_cost = esp_costs.get(decs.get("espionnage", 0), 0) + sab_costs.get(decs.get("sabotage_type", 0), 0)
 
     adjusted_base_market = product["base_market_size_per_team"] * (1.0 + market_growth_rate)
     total_market_size_est = adjusted_base_market * num_teams
@@ -207,7 +199,6 @@ def calculate_forecast(comp, decs, product, is_prod_phase, num_teams, market_gro
     cash_delayed_clients = revenue * (min(client_terms, 365) / 365.0)
     cash_delayed_suppliers = purchases_value * (min(supplier_terms, 365) / 365.0)
     
-    # Calcul Taux Emprunt basé sur soutenabilité N-1
     loan_amount = decs.get("new_loan_amount", 0.0)
     loan_duration = decs.get("new_loan_duration", 3)
     
@@ -263,7 +254,6 @@ def resolve_turn(room):
     SABOTAGE_FIELDS = ["price", "marketing", "quality", "rd_budget", "rse_budget", "client_terms", "supplier_terms"]
     FIELD_NAMES = {"price": "Prix", "marketing": "Pub", "quality": "Qualité", "rd_budget": "R&D", "rse_budget": "RSE", "client_terms": "Délai Clients", "supplier_terms": "Délai Fournisseurs"}
     
-    # 1. RESOLUTION DES SABOTAGES & GELS
     sabotages_to_apply = []
     if room["current_year"] > 1:
         for attacker_name, comp in companies.items():
@@ -306,45 +296,33 @@ def resolve_turn(room):
     for name, comp in companies.items():
         comp["frozen_fields"] = frozen_fields_map[name]
 
-    # 2. CALCUL DES SCORES DE DEMANDE
     scores = {}
     for name, comp in companies.items():
         dec = comp.get("current_decisions", {})
         price = dec.get("price", product["benchmark_price"])
         rse_tot = dec.get("rse_budget", 0.0) + comp.get("rse_cumul", 0.0)
         _, _, pop = get_popularity_gauges(comp, dec)
+        
+        name_bonus = 1.0 + comp.get("name_score", 0.0) if room["current_year"] == 1 else 1.0
+        
         scores[name] = get_theo_demand(adjusted_base_market, price, product["benchmark_price"], 
                                        dec.get("marketing", 0.0), dec.get("quality", 0.0), rse_tot, 
-                                       float(dec.get("client_terms", 0)), comp["brand_awareness"], pop)
+                                       float(dec.get("client_terms", 0)), comp["brand_awareness"], pop) * name_bonus
 
     total_score = sum(scores.values()) if sum(scores.values()) > 0 else 1.0
     esp_costs = {0: 0, 1: 5000, 2: 20000, 3: 50000, 4: 100000}
     sab_costs = {0: 0, 1: 200000, 2: 300000, 3: 500000}
     
-    # 3. GESTION DES ALÉAS (15% malus, 10% bonus, au moins 1 de chaque par an globalement)
     hazard_msgs = {}
     for name in companies.keys():
         r_haz = random.random()
         if r_haz < 0.15:
-            haz_type = "neg"
-            haz_txt = random.choice([
-                "📉 Grève imprévue des transports : capacité de livraison réduite.",
-                "🔥 Panne d'une machine : frais de maintenance exceptionnels (+15 K€).",
-                "⚖️ Contrôle fiscal rigoureux : amende surprise de 10 K€."
-            ])
+            hazard_msgs[name] = {"type": "neg", "txt": random.choice(["📉 Grève transports (-15 K€).", "🔥 Panne machine (-15 K€).", "⚖️ Contrôle fiscal (-15 K€)."])}
         elif r_haz < 0.25:
-            haz_type = "pos"
-            haz_txt = random.choice([
-                "🌟 Coup de pub inattendu dans un journal national : notoriété boostée !",
-                "🤝 Signature d'un gros contrat local : prime de 15 K€ immédiate.",
-                "💡 Innovation spontanée de l'équipe : gain de productivité."
-            ])
+            hazard_msgs[name] = {"type": "pos", "txt": random.choice(["🌟 Buzz (+15 K€).", "🤝 Gros contrat (+15 K€).", "💡 Subvention (+15 K€)."])}
         else:
-            haz_type = "none"
-            haz_txt = ""
-        hazard_msgs[name] = {"type": haz_type, "txt": haz_txt}
+            hazard_msgs[name] = {"type": "none", "txt": ""}
 
-    # 4. CALCUL DU TOUR PAR ENTREPRISE
     for name, comp in companies.items():
         dec = comp.get("current_decisions", {})
         
@@ -423,13 +401,10 @@ def resolve_turn(room):
         tax = net_before_tax * 0.25 if net_before_tax > 0 else 0.0
         net_income = net_before_tax - tax
         
-        # Aléas impacts cash
         haz = hazard_msgs[name]
         haz_cash_impact = 0.0
-        if haz["type"] == "neg":
-            haz_cash_impact = -15000.0
-        elif haz["type"] == "pos":
-            haz_cash_impact = 15000.0
+        if haz["type"] == "neg": haz_cash_impact = -15000.0
+        elif haz["type"] == "pos": haz_cash_impact = 15000.0
             
         comp["cash"] += cash_in_sales - cash_out_purchases - (expenses - depreciation) - interest - tax - repayments + haz_cash_impact
         
@@ -463,7 +438,6 @@ def resolve_turn(room):
     room["current_year"] += 1
     if room["current_year"] > room["max_years"]:
         room["status"] = "ended"
-        # Pénalité emprunts non remboursés doublés et déduits du résultat final
         for name, comp in companies.items():
             remaining_debt = sum([l["amount"] for l in comp["loans"] if l["remaining_years"] > 0])
             if remaining_debt > 0:
@@ -474,7 +448,79 @@ def resolve_turn(room):
     save_game_to_disk(room)
 
 # ==========================================
-# 5. INTERFACE UTILISATEUR & LOBBY
+# 5. ASSISTANT & RÈGLES (FAQ BOT)
+# ==========================================
+def bot_answer(q):
+    q = q.lower()
+    if "prix" in q: return "Le prix influence fortement la demande. S'il est sous 40% du prix moyen, les clients fuiront en pensant à une arnaque (trop beau pour être vrai). Trop haut, compensez par la Qualité et la Pub."
+    elif "pub" in q or "marketing" in q: return "La publicité augmente votre attractivité. Cible recommandée : 7.5% à 15% de votre Chiffre d'Affaires."
+    elif "qualité" in q: return "La qualité booste la popularité, mais attention : elle rallonge le temps de fabrication unitaire de vos produits ! (Cible: 0.5% à 2.5% du CA)."
+    elif "rse" in q or "écologie" in q: return "La RSE (Responsabilité Sociétale) améliore votre image durablement. C'est un bonus cumulatif qui fidélise la clientèle. (Cible : 2 à 5% du CA)."
+    elif "rh" in q or "employé" in q or "salarié" in q: return "Un employé travaille 1600h/an. Sa productivité dépend de son salaire (motivation), de la formation (l'accélère) et de la qualité exigée (le ralentit)."
+    elif "machine" in q: return "Disponibles à l'Année 5 (Phase Production). Une machine coûte 50 K€, s'amortit sur 5 ans (10 K€/an) et a une capacité de production fixe selon le produit."
+    elif "sabotage" in q: return "Vous pouvez geler une décision d'un adversaire sur son ancienne valeur. L'adversaire pourra saisir ce qu'il veut, au moment de valider, sa valeur sera écrasée et il recevra une alerte rouge ! Impossible sur les RH."
+    elif "espionnage" in q: return "Essentiel pour voir la stratégie adverse. À 50 K€, vous avez les Comptes de Résultat. À 100 K€, vous obtenez un audit Vert/Rouge comparant vos choix à la moyenne du marché."
+    elif "emprunt" in q or "banque" in q: return "Le taux d'intérêt (1% à 5%) dépend de votre capacité à le rembourser par rapport à votre Résultat N-1. Tout emprunt non remboursé à la fin du jeu compte DOUBLE en pénalité !"
+    elif "karma" in q or "aléa" in q: return "Il y a 15% de chance de subir un malus (grève, panne) et 10% d'avoir un bonus chaque année. Les actions toxiques aggravent ces probabilités en coulisse."
+    elif "stock" in q: return "Attention au surstock ! Chaque unité non vendue stockée dans vos entrepôts vous coûte 4€ de frais de stockage annuel."
+    elif "croissance" in q or "marché" in q: return "Le marché global grandit (entre +5% et +33% par an). Surveillez cet indicateur en haut à gauche pour savoir combien d'unités supplémentaires peuvent être vendues !"
+    else: return "Je suis l'assistant IA du jeu. Posez-moi des questions sur des mots-clés : Prix, Employé, Machine, Pub, Qualité, RSE, Espionnage, Sabotage, Emprunt, Karma..."
+
+def render_help_and_faq():
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("📚 Guide, Règles & Assistant", expanded=False):
+        t_regles, t_strat, t_ask = st.tabs(["📖 Règles", "♟️ Stratégies", "❓ FAQ / Chat"])
+        
+        with t_regles:
+            st.markdown("""
+            **🎯 BUT DU JEU**  
+            Devenir l'entreprise la plus riche (Trésorerie + Valeur du Stock) à la fin des années définies.
+            
+            **⏳ LES PHASES**
+            * **Années 1 à 4 (Négoce) :** Vous achetez des produits finis, vous gérez vos salariés (qui préparent les commandes) et vous vendez.
+            * **Années 5+ (Production) :** Fini l'achat de produits finis ! Vous devez acheter des **Machines (50 K€)** pour fabriquer vous-même. 
+
+            **⚙️ MÉCANIQUES CLÉS**
+            * **Ressources Humaines :** La productivité est la clé. Un salaire haut motive, la formation accélère la cadence, mais une forte exigence de Qualité ralentit le rythme.
+            * **Intelligence Client :** Si votre prix est inférieur à 40% du prix normal, les clients flaireront l'arnaque et n'achèteront pas.
+            * **Délais de Paiement :** Payer les fournisseurs tard garde de la trésorerie mais risque la rupture. Demander aux clients de payer tout de suite booste votre trésorerie mais freine les ventes.
+            * **Les Emprunts :** Le banquier vous prête avec un taux de 1% à 5% selon votre capacité de remboursement. *Attention, une dette à la fin du jeu compte double !*
+            """)
+            
+        with t_strat:
+            st.markdown("""
+            **🛡️ Les 3 grandes voies pour gagner :**
+            
+            **1️⃣ Le Low-Cost Agressif (Volume)**
+            * **Action :** Prix ras des pâquerettes, Qualité et RSE minimales.
+            * **Avantage :** Vous raflez d'énormes parts de marché.
+            * **Danger :** Risque social fort (Grèves), marges microscopiques, et si le prix est *trop* bas (suspect), les clients fuient.
+            
+            **2️⃣ Le Premium Niché (Valeur)**
+            * **Action :** Prix très élevé, Pub massive, RSE et Qualité à fond, R&D importante pour baisser le coût de fabrication.
+            * **Avantage :** Marges colossales, clients fidèles.
+            * **Danger :** Si vous sous-estimez les frais fixes ou si vos RH ne suivent pas, la trésorerie plonge vite.
+            
+            **3️⃣ Le Manipulateur (Sabotage & Renseignement)**
+            * **Action :** Vous dépensez vos profits en Espionnage (100 K€) pour copier les prix des autres, et en Sabotage (300 K€+) pour geler leurs baisses de prix ou leurs budgets pub.
+            * **Avantage :** Vous contrôlez le marché et neutralisez vos adversaires direct.
+            """)
+            
+        with t_ask:
+            st.markdown("**Posez vos questions à l'Assistant du CEO :**")
+            faq_input = st.text_input("Ex: Comment marche l'emprunt ?", key="faq_in")
+            if st.button("Demander"):
+                if faq_input:
+                    ans = bot_answer(faq_input)
+                    st.session_state.faq_chat.append({"q": faq_input, "a": ans})
+            
+            # Afficher les 4 dernières questions/réponses
+            for chat in reversed(st.session_state.faq_chat[-4:]):
+                st.markdown(f"👤 **Vous:** *{chat['q']}*")
+                st.info(f"🤖 **Bot:** {chat['a']}")
+
+# ==========================================
+# 6. INTERFACE LOBBY ET JEU MAIN
 # ==========================================
 if "room_code" not in st.session_state: st.session_state.room_code = None
 if "player_team" not in st.session_state: st.session_state.player_team = None
@@ -493,8 +539,6 @@ if not st.session_state.room_code:
                 else:
                     room_code = f"SALON-{random.randint(1000,9999)}"
                     product = random.choice(PRODUCT_UNIVERSES)
-                    
-                    # Génération des croissances de marché aléatoires (5% à 33%) par an
                     market_growths = {str(y): round(random.uniform(0.05, 0.33), 2) for y in range(1, num_years + 1)}
                     
                     room = {
@@ -529,6 +573,9 @@ if not st.session_state.room_code:
                         st.session_state.player_team = player_name.strip()
                         st.rerun()
                 else: st.error("Code introuvable ou nom vide.")
+    
+    # Affichage du guide en sidebar (même si non connecté)
+    render_help_and_faq()
 
 else:
     room = GAMES[st.session_state.room_code]
@@ -540,7 +587,6 @@ else:
         st.title("🏠 Salle d'attente")
         st.info(f"👉 Code à partager : **{room['room_code']}**")
         
-        # RÈGLE D'AFFICHAGE EN PRIVÉ DU NOM D'ENTREPRISE (LOBBY)
         p_team = st.session_state.player_team
         if p_team in room["companies"]:
             score_name = room["companies"][p_team]["name_score"]
@@ -559,6 +605,10 @@ else:
             save_game_to_disk(room)
             st.rerun()
         if st.button("Actualiser l'écran"): st.rerun()
+        
+        # Guide pour l'attente
+        render_help_and_faq()
+        
     else:
         st.sidebar.markdown(f"**🔑 Salon:** `{room['room_code']}` | **📅 Année:** {room['current_year']}/{room['max_years']}")
         market_g = room.get("market_growths", {}).get(str(room["current_year"]), 0.15)
@@ -572,6 +622,15 @@ else:
         selected_team = st.sidebar.selectbox("Changer de vue :", list(room["companies"].keys()), index=list(room["companies"].keys()).index(st.session_state.player_team))
         comp = room["companies"][selected_team]
         has_played = selected_team in room["ready_teams"]
+        
+        if room["status"] == "playing" and st.session_state.player_team == room["host"]:
+            st.sidebar.markdown("---")
+            if st.sidebar.button("⚠️ Forcer la fin du tour", type="primary"):
+                resolve_turn(room)
+                st.rerun()
+
+        # Guide pour l'attente en partie (TOUJOURS EN DESSOUS)
+        render_help_and_faq()
         
         st.title(f"🏢 {selected_team}")
         
@@ -600,9 +659,7 @@ else:
             st.markdown("---")
             st.subheader("📈 Graphiques comparatifs sur toutes les années")
             
-            # Préparation des DataFrames pour les 5 graphiques
             all_years = list(range(1, room["current_year"]))
-            
             df_cash, df_rev, df_share, df_sales, df_net = [], [], [], [], []
             for name, c in room["companies"].items():
                 for h in c["history"]:
@@ -688,7 +745,7 @@ else:
                         loan_duration = st.slider("Durée emprunt", 1, 5, value=st.session_state[sim_key]["new_loan_duration"])
 
                     if frozen:
-                        st.warning(f"🔒 Attention, l'action de sabotage ennemie a gelé les champs suivants : {', '.join(frozen)}")
+                        st.warning(f"🔒 Attention, l'action de sabotage ennemie a gelé les champs suivants sur leur ancienne valeur : {', '.join(frozen)}")
 
                     calc_btn = st.form_submit_button("🔄 Calculer mes prévisions")
 
@@ -850,9 +907,3 @@ else:
                         if my_price > avg_price * 1.1: st.markdown("🔴 **Prix :** Vous êtes trop cher par rapport au marché.")
                         elif my_price < avg_price * 0.9: st.markdown("🟢 **Prix :** Très compétitif sur les prix.")
                         else: st.markdown("⚪ **Prix :** Parfaitement aligné.")
-
-        st.sidebar.markdown("---")
-        if room["status"] == "playing" and st.session_state.player_team == room["host"]:
-            if st.sidebar.button("Forcer fin du tour", type="primary"):
-                resolve_turn(room)
-                st.rerun()
