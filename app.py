@@ -1,10 +1,12 @@
 import json
 import os
 import random
+import time
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ==========================================
 # 1. CONFIGURATION
@@ -82,13 +84,24 @@ def fmt_k(amount):
 def fmt_num(val):
     return f"{val:,.0f}".replace(",", " ")
 
+def get_default_decs(comp, product):
+    last = comp["history"][-1] if comp["history"] else {}
+    return {
+        "price": float(last.get("price", product["benchmark_price"])),
+        "forecast_sales": int(last.get("sales", 3000)), "purchase_qty": int(last.get("sales", 3000)),
+        "buy_machines": 0, "marketing": 10000.0, "rd_budget": 3000.0, "rse_budget": 2000.0,
+        "employees": int(comp.get("employees", 2)), "salary": 30000.0, "quality": 2500.0,
+        "training": 1500.0, "client_terms": 30, "supplier_terms": 30, "new_loan_amount": 0.0,
+        "new_loan_duration": 3, "espionnage": 0, "sabotage_type": 0, "sabotage_target": "", "sabotage_action": ""
+    }
+
 def init_company(name, start_capital, product):
     name_score = analyze_company_name(name)
     return {
         "name": name, "cash": start_capital, "stock": 0, "employees": 2, "machines": 0,
         "brand_awareness": 10.0, "rd_cumul": 0.0, "rse_cumul": 0.0, "loans": [],
         "pending_client_cash": 0.0, "pending_supplier_cash": 0.0, "history": [], "current_decisions": {},
-        "name_score": name_score, "frozen_fields": []
+        "draft_decisions": {}, "name_score": name_score, "frozen_fields": []
     }
 
 def get_unit_cost(base_cost, rd_total):
@@ -336,6 +349,9 @@ def resolve_turn(room):
             new_mach = dec.get("buy_machines", 0)
             comp["machines"] += new_mach
             comp["cash"] -= new_mach * 50000.0
+            prod_cap = comp["machines"] * product["machine_capacity"]
+        else:
+            prod_cap = 0
             
         theo_share = scores[name] / total_score
         team_demand = total_market_demand * theo_share
@@ -346,7 +362,6 @@ def resolve_turn(room):
         hr_cap = hr_metrics["hr_cap"]
         
         if is_prod_phase:
-            prod_cap = comp["machines"] * product["machine_capacity"]
             actual_sales = min(team_demand, available_stock, hr_cap, prod_cap)
         else:
             actual_sales = min(team_demand, available_stock, hr_cap)
@@ -433,8 +448,10 @@ def resolve_turn(room):
             "espionnage_level": dec.get("espionnage", 0), "event_msg": full_msg
         })
         comp["current_decisions"] = {}
+        comp["draft_decisions"] = {}
 
     room["ready_teams"] = []
+    room["turn_deadline"] = None
     room["current_year"] += 1
     if room["current_year"] > room["max_years"]:
         room["status"] = "ended"
@@ -452,76 +469,113 @@ def resolve_turn(room):
 # ==========================================
 def bot_answer(q):
     q = q.lower()
-    if "prix" in q: return "Le prix influence fortement la demande. S'il est sous 40% du prix moyen, les clients fuiront en pensant à une arnaque (trop beau pour être vrai). Trop haut, compensez par la Qualité et la Pub."
-    elif "pub" in q or "marketing" in q: return "La publicité augmente votre attractivité. Cible recommandée : 7.5% à 15% de votre Chiffre d'Affaires."
-    elif "qualité" in q: return "La qualité booste la popularité, mais attention : elle rallonge le temps de fabrication unitaire de vos produits ! (Cible: 0.5% à 2.5% du CA)."
-    elif "rse" in q or "écologie" in q: return "La RSE (Responsabilité Sociétale) améliore votre image durablement. C'est un bonus cumulatif qui fidélise la clientèle. (Cible : 2 à 5% du CA)."
-    elif "rh" in q or "employé" in q or "salarié" in q: return "Un employé travaille 1600h/an. Sa productivité dépend de son salaire (motivation), de la formation (l'accélère) et de la qualité exigée (le ralentit)."
-    elif "machine" in q: return "Disponibles à l'Année 5 (Phase Production). Une machine coûte 50 K€, s'amortit sur 5 ans (10 K€/an) et a une capacité de production fixe selon le produit."
-    elif "sabotage" in q: return "Vous pouvez geler une décision d'un adversaire sur son ancienne valeur. L'adversaire pourra saisir ce qu'il veut, au moment de valider, sa valeur sera écrasée et il recevra une alerte rouge ! Impossible sur les RH."
-    elif "espionnage" in q: return "Essentiel pour voir la stratégie adverse. À 50 K€, vous avez les Comptes de Résultat. À 100 K€, vous obtenez un audit Vert/Rouge comparant vos choix à la moyenne du marché."
-    elif "emprunt" in q or "banque" in q: return "Le taux d'intérêt (1% à 5%) dépend de votre capacité à le rembourser par rapport à votre Résultat N-1. Tout emprunt non remboursé à la fin du jeu compte DOUBLE en pénalité !"
-    elif "karma" in q or "aléa" in q: return "Il y a 15% de chance de subir un malus (grève, panne) et 10% d'avoir un bonus chaque année. Les actions toxiques aggravent ces probabilités en coulisse."
-    elif "stock" in q: return "Attention au surstock ! Chaque unité non vendue stockée dans vos entrepôts vous coûte 4€ de frais de stockage annuel."
-    elif "croissance" in q or "marché" in q: return "Le marché global grandit (entre +5% et +33% par an). Surveillez cet indicateur en haut à gauche pour savoir combien d'unités supplémentaires peuvent être vendues !"
-    else: return "Je suis l'assistant IA du jeu. Posez-moi des questions sur des mots-clés : Prix, Employé, Machine, Pub, Qualité, RSE, Espionnage, Sabotage, Emprunt, Karma..."
+    if any(w in q for w in ["prix", "tarif", "vendre", "vente"]): 
+        return "Le Prix de Vente est l'arme de destruction massive. S'il est sous 40% du prix moyen, vos clients penseront que c'est une arnaque (malus de suspicion et chute des ventes). S'il est très bas mais réaliste, vous raflerez tout le volume. S'il est haut, il faut compenser en ayant beaucoup de budget Pub et Qualité pour justifier votre placement 'Premium'."
+    elif any(w in q for w in ["pub", "marketing", "publicite", "pub"]): 
+        return "Le Budget Pub augmente drastiquement votre image de marque (notoriété). Son impact est immédiat sur les parts de marché. L'objectif idéal recommandé par les experts est de 7.5% à 15% de votre Chiffre d'Affaires."
+    elif any(w in q for w in ["qualité", "qualite", "défaut"]): 
+        return "Le Budget Qualité limite les défauts et augmente massivement la popularité auprès des clients (Cible: 0.5% à 2.5% du CA). MAIS attention : exiger de la qualité ralentit vos salariés ! Le temps de production d'un produit va augmenter, ce qui baissera votre capacité de production maximale (Capacité RH)."
+    elif any(w in q for w in ["rse", "ecologie", "écologie", "social", "environnement"]): 
+        return "Le Budget RSE (Environnement/Social) est un investissement long terme. Contrairement à la pub qui est immédiate, la RSE se cumule d'année en année. Cible idéale : 2% à 5% du CA. C'est parfait pour fidéliser la clientèle."
+    elif any(w in q for w in ["rh", "employé", "employe", "salarié", "salarie", "salaire", "formation"]): 
+        return "Vos salariés travaillent 1600 heures par an. Leur cadence de production est affectée par 3 choses : 1) Leur motivation (un salaire au-dessus de 30K€ les booste). 2) La Formation (elle accélère leur cadence). 3) L'exigence de Qualité (elle les ralentit, car ils doivent être minutieux)."
+    elif any(w in q for w in ["delai", "délais", "client", "paiement client"]): 
+        return "Délai Clients : Autoriser vos clients à payer tard (ex: 60 ou 90 jours) va booster énormément vos ventes car c'est un argument commercial fort. CONSÉQUENCE : Votre trésorerie immédiate va s'effondrer car l'argent rentrera avec beaucoup de retard. Vous risquez le découvert bancaire !"
+    elif any(w in q for w in ["fournisseur", "fournisseurs", "paiement", "achat"]): 
+        return "Délai Fournisseurs : Vous pouvez décider de payer vos fournisseurs tard (ex: 60 jours). AVANTAGE : Cela préserve votre Trésorerie, car l'argent sort plus tard de vos caisses. CONSÉQUENCE : Si vous le faites trop, vous pourriez perdre des remises secrètes. Modérez-le !"
+    elif any(w in q for w in ["rd", "r&d", "recherche", "développement"]): 
+        return "Le Budget R&D (Recherche) permet de baisser définitivement le Coût Unitaire de fabrication de votre produit. Son effet se cumule ! Très utile sur le long terme pour écraser la concurrence sur les marges."
+    elif any(w in q for w in ["emprunt", "banque", "dette", "prêt", "pret", "interet"]): 
+        return "L'Emprunt vous donne du Cash immédiat. Le banquier analyse votre Résultat Net de l'Année N-1 pour fixer le Taux (de 1% si vous êtes très rentable, jusqu'à 5% si vous êtes fragile). ATTENTION : À la fin de la partie, toute dette non remboursée est doublée et déduite de votre score final !"
+    elif any(w in q for w in ["sabotage", "geler", "frappe"]): 
+        return "Le Sabotage permet de forcer le maintien d'une valeur (ex: le prix, ou la pub) d'un adversaire sur ce qu'il a joué l'année dernière. L'adversaire fera sa simulation normalement, mais lors de la validation du tour, son chiffre sera écrasé par l'ancien ! Imparable, mais cher."
+    elif any(w in q for w in ["espionnage", "donnée", "audit"]): 
+        return "L'espionnage vous donne l'historique exact des autres. Le niveau ultime (100 K€) analyse automatiquement vos choix par rapport à la moyenne du marché en vous donnant un bilan Rouge/Vert très utile pour corriger le tir."
+    elif any(w in q for w in ["machine", "prod"]): 
+        return "Les machines s'achètent en Phase Production (Année 5). Elles coûtent 50K€ pièce et ont une capacité maximale définie par le secteur. Elles s'amortissent sur 5 ans (10K€ de charge par an)."
+    elif any(w in q for w in ["stock", "stockage", "invendu"]): 
+        return "Tout produit acheté/produit mais non vendu finira dans votre entrepôt. Chaque unité stockée génère un coût fixe de 4€ par an ! Attention aux surstocks massifs qui ruinent la rentabilité."
+    elif any(w in q for w in ["aléa", "alea", "événement", "evenement", "karma"]): 
+        return "Chaque année, l'ordinateur tire les dés : vous avez 15% de risque de subir une catastrophe (grève, panne = perte de 15K€ et ralentissements) et 10% de chance d'avoir un miracle (buzz = +15K€)."
+    else: 
+        return "Je suis l'assistant IA de votre Conseil d'Administration. Précisez votre question avec des mots simples (Ex: 'Comment marche le prix ?', 'Explique moi le délai client', 'A quoi sert la RSE ?', 'Combien coute le stock ?')."
 
 def render_help_and_faq():
     st.sidebar.markdown("---")
     with st.sidebar.expander("📚 Guide, Règles & Assistant", expanded=False):
-        t_regles, t_strat, t_ask = st.tabs(["📖 Règles", "♟️ Stratégies", "❓ FAQ / Chat"])
+        t_regles, t_strat, t_ask = st.tabs(["📖 Règles & Paramètres", "♟️ Stratégies", "❓ FAQ / Chat IA"])
         
         with t_regles:
             st.markdown("""
             **🎯 BUT DU JEU**  
-            Devenir l'entreprise la plus riche (Trésorerie + Valeur du Stock) à la fin des années définies.
+            Devenir l'entreprise avec la plus haute valeur (Trésorerie Actuelle + Valeur Estimée du Stock) à la fin des années définies.
             
-            **⏳ LES PHASES**
-            * **Années 1 à 4 (Négoce) :** Vous achetez des produits finis, vous gérez vos salariés (qui préparent les commandes) et vous vendez.
-            * **Années 5+ (Production) :** Fini l'achat de produits finis ! Vous devez acheter des **Machines (50 K€)** pour fabriquer vous-même. 
+            **⏳ LES PHASES DE JEU**
+            * **Années 1 à 4 (Négoce) :** Pas d'usine. Vous achetez des produits finis, et vos salariés gèrent l'assemblage final/logistique. Votre capacité dépend 100% de vos RH.
+            * **Années 5+ (Production) :** Vous devez acheter des **Machines (50 K€ l'unité)** pour fabriquer. Vos salariés opèrent désormais ces machines.
 
-            **⚙️ MÉCANIQUES CLÉS**
-            * **Ressources Humaines :** La productivité est la clé. Un salaire haut motive, la formation accélère la cadence, mais une forte exigence de Qualité ralentit le rythme.
-            * **Intelligence Client :** Si votre prix est inférieur à 40% du prix normal, les clients flaireront l'arnaque et n'achèteront pas.
-            * **Délais de Paiement :** Payer les fournisseurs tard garde de la trésorerie mais risque la rupture. Demander aux clients de payer tout de suite booste votre trésorerie mais freine les ventes.
-            * **Les Emprunts :** Le banquier vous prête avec un taux de 1% à 5% selon votre capacité de remboursement. *Attention, une dette à la fin du jeu compte double !*
+            **⚙️ EXPLICATION DÉTAILLÉE DES MÉCANIQUES**
+            * **💰 Prix de Vente :** Le nerf de la guerre. Trop bas (sous 40% de la moyenne) = Arnaque perçue par le client = Malus extrême. Juste prix = fort volume. Prix haut = forte marge mais petit volume.
+            * **⏳ Délais Clients (Jours) :** Accepter que le client paie dans 90 jours attire énormément de demande. *Danger :* Votre argent rentre en retard, causant des découverts bancaires fatals.
+            * **🚚 Délais Fournisseurs (Jours) :** Payer votre fournisseur tard (ex: 90 jours) garde votre cash au chaud pour vos propres investissements.
+            * **🎓 Formation (1-5% Salaires) :** Accélère le temps de travail. Vos employés abattent plus d'unités par heure.
+            * **✨ Qualité (0.5-2.5% CA) :** Booste l'attractivité du produit. *Danger :* Les employés doivent être plus minutieux, ce qui ralentit leur temps de production à l'unité !
+            * **📢 Publicité (7.5-15% CA) :** L'effet est instantané sur vos ventes et augmente la notoriété de votre marque.
+            * **🔬 R&D (0-30% CA) :** Baisse définitivement le coût de fabrication de chaque produit. L'effet est persistant et cumulatif au fil des ans.
+            * **🌍 RSE (2-5% CA) :** Investissement vertueux et environnemental. Améliore la popularité à long terme. Effet cumulatif et très stable.
+            * **🏦 Emprunt :** Permet de financer l'espionnage, les machines ou de couvrir un déficit. Taux : 1 à 5% selon votre solidité. *Pénalité finale : Dette non remboursée = x2 sur le résultat final.*
             """)
             
         with t_strat:
             st.markdown("""
-            **🛡️ Les 3 grandes voies pour gagner :**
+            **🛡️ Les 3 grandes méthodes pour écraser la concurrence :**
             
-            **1️⃣ Le Low-Cost Agressif (Volume)**
-            * **Action :** Prix ras des pâquerettes, Qualité et RSE minimales.
-            * **Avantage :** Vous raflez d'énormes parts de marché.
-            * **Danger :** Risque social fort (Grèves), marges microscopiques, et si le prix est *trop* bas (suspect), les clients fuient.
+            **1️⃣ Le Low-Cost Agressif (Gros Volume)**
+            * **Action :** Prix bas, RSE à 0, Qualité faible, beaucoup d'employés sous-payés.
+            * **Avantage :** Vous absorbez des parts de marché colossales.
+            * **Danger :** Marges minuscules. Si la trésorerie ou le stock coince un mois, c'est la faillite assurée.
             
-            **2️⃣ Le Premium Niché (Valeur)**
-            * **Action :** Prix très élevé, Pub massive, RSE et Qualité à fond, R&D importante pour baisser le coût de fabrication.
-            * **Avantage :** Marges colossales, clients fidèles.
-            * **Danger :** Si vous sous-estimez les frais fixes ou si vos RH ne suivent pas, la trésorerie plonge vite.
+            **2️⃣ Le Premium Niché (Forte Valeur)**
+            * **Action :** Prix très élevé, Pub massive, Qualité et RSE au plafond, grosse R&D.
+            * **Avantage :** Peu de volumes à gérer, marges gigantesques, clients fidélisés.
+            * **Danger :** Les charges fixes (R&D, Pub) peuvent aspirer toute la trésorerie avant même les premières ventes.
             
-            **3️⃣ Le Manipulateur (Sabotage & Renseignement)**
-            * **Action :** Vous dépensez vos profits en Espionnage (100 K€) pour copier les prix des autres, et en Sabotage (300 K€+) pour geler leurs baisses de prix ou leurs budgets pub.
-            * **Avantage :** Vous contrôlez le marché et neutralisez vos adversaires direct.
+            **3️⃣ Le Manipulateur de l'Ombre (Sabotage)**
+            * **Action :** Dépenser 300K à 500K dans le sabotage chirurgical et l'espionnage.
+            * **Avantage :** Vous copiez les prix, et vous gelez les budgets Pub ou les baisses de prix de vos concurrents au pire moment pour eux.
             """)
             
         with t_ask:
-            st.markdown("**Posez vos questions à l'Assistant du CEO :**")
-            faq_input = st.text_input("Ex: Comment marche l'emprunt ?", key="faq_in")
+            st.markdown("**Posez vos questions à l'Assistant IA du CEO :**")
+            faq_input = st.text_input("Ex: Quel est le bon budget pour la pub ?", key="faq_in")
             if st.button("Demander"):
                 if faq_input:
                     ans = bot_answer(faq_input)
                     st.session_state.faq_chat.append({"q": faq_input, "a": ans})
             
-            # Afficher les 4 dernières questions/réponses
-            for chat in reversed(st.session_state.faq_chat[-4:]):
+            for chat in reversed(st.session_state.faq_chat[-5:]):
                 st.markdown(f"👤 **Vous:** *{chat['q']}*")
-                st.info(f"🤖 **Bot:** {chat['a']}")
+                st.info(f"🤖 **Assistant:** {chat['a']}")
 
 # ==========================================
 # 6. INTERFACE LOBBY ET JEU MAIN
 # ==========================================
+# Vérification automatique des timers (Auto-validation)
+if "room_code" in st.session_state and st.session_state.room_code:
+    tmp_room = GAMES.get(st.session_state.room_code)
+    if tmp_room and tmp_room.get("turn_deadline") and len(tmp_room["ready_teams"]) == len(tmp_room["companies"]) - 1:
+        if time.time() > tmp_room["turn_deadline"]:
+            missing_team = [t for t in tmp_room["companies"].keys() if t not in tmp_room["ready_teams"]][0]
+            m_comp = tmp_room["companies"][missing_team]
+            draft = m_comp.get("draft_decisions")
+            if not draft:
+                draft = get_default_decs(m_comp, tmp_room["product"])
+            m_comp["current_decisions"] = draft
+            tmp_room["ready_teams"].append(missing_team)
+            tmp_room["turn_deadline"] = None
+            save_game_to_disk(tmp_room)
+            st.rerun()
+
 if "room_code" not in st.session_state: st.session_state.room_code = None
 if "player_team" not in st.session_state: st.session_state.player_team = None
 
@@ -545,7 +599,7 @@ if not st.session_state.room_code:
                         "room_code": room_code, "host": host_name.strip(), "product": product,
                         "max_years": num_years, "current_year": 1, "status": "waiting",
                         "start_capital": capital_k * 1000.0, "companies": {}, "ready_teams": [],
-                        "market_growths": market_growths
+                        "market_growths": market_growths, "turn_deadline": None
                     }
                     room["companies"][host_name.strip()] = init_company(host_name.strip(), room["start_capital"], product)
                     GAMES[room_code] = room
@@ -574,7 +628,6 @@ if not st.session_state.room_code:
                         st.rerun()
                 else: st.error("Code introuvable ou nom vide.")
     
-    # Affichage du guide en sidebar (même si non connecté)
     render_help_and_faq()
 
 else:
@@ -606,7 +659,6 @@ else:
             st.rerun()
         if st.button("Actualiser l'écran"): st.rerun()
         
-        # Guide pour l'attente
         render_help_and_faq()
         
     else:
@@ -623,17 +675,38 @@ else:
         comp = room["companies"][selected_team]
         has_played = selected_team in room["ready_teams"]
         
+        # Gestion du bouton Administrateur (Hôte) pour passer le tour
         if room["status"] == "playing" and st.session_state.player_team == room["host"]:
             st.sidebar.markdown("---")
-            if st.sidebar.button("⚠️ Forcer la fin du tour", type="primary"):
-                resolve_turn(room)
-                st.rerun()
+            if len(room["ready_teams"]) == num_teams:
+                st.sidebar.success("✅ Tout le monde est prêt !")
+                if st.sidebar.button("🟢 Passer à l'année suivante", type="primary", use_container_width=True):
+                    resolve_turn(room)
+                    st.rerun()
+            else:
+                st.sidebar.warning(f"En attente... ({len(room['ready_teams'])}/{num_teams})")
+                with st.sidebar.expander("🛠️ Options Admin"):
+                    if st.button("⚠️ Forcer la fin immédiate"):
+                        for m in room["companies"].keys():
+                            if m not in room["ready_teams"]:
+                                room["companies"][m]["current_decisions"] = room["companies"][m].get("draft_decisions", get_default_decs(room["companies"][m], product))
+                                room["ready_teams"].append(m)
+                        resolve_turn(room)
+                        st.rerun()
 
-        # Guide pour l'attente en partie (TOUJOURS EN DESSOUS)
         render_help_and_faq()
         
         st.title(f"🏢 {selected_team}")
         
+        # Affichage du Timer si l'avant-dernier joueur a validé
+        if room.get("turn_deadline") and len(room["ready_teams"]) == num_teams - 1 and room["status"] == "playing":
+            time_left = int(room["turn_deadline"] - time.time())
+            if time_left > 0:
+                mins, secs = divmod(time_left, 60)
+                st.error(f"⏳ **ATTENTION :** Plus que **{mins}m {secs}s** avant la validation forcée du dernier joueur !")
+                # Hack JS pour forcer le rafraîchissement de la page de tout le monde quand le chrono tombe à zéro
+                components.html(f"<script>setTimeout(function(){{ window.parent.location.reload(); }}, {time_left * 1000 + 1000});</script>", height=0)
+
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("Trésorerie", fmt_k(comp['cash']))
         m2.metric("Stock Actuel", f"{fmt_num(comp['stock'])} un.")
@@ -645,7 +718,7 @@ else:
             st.warning(f"🔔 **ÉVÉNEMENT DE L'ANNÉE :** {comp['history'][-1]['event_msg']}")
 
         if has_played and room["status"] == "playing":
-            st.success("✅ Vos décisions sont validées. En attente des concurrents...")
+            st.success("✅ Vos décisions sont validées. En attente de la résolution du tour par l'Hôte...")
             st.progress(len(room['ready_teams']) / num_teams)
             if st.button("Actualiser"): st.rerun()
             
@@ -659,7 +732,6 @@ else:
             st.markdown("---")
             st.subheader("📈 Graphiques comparatifs sur toutes les années")
             
-            all_years = list(range(1, room["current_year"]))
             df_cash, df_rev, df_share, df_sales, df_net = [], [], [], [], []
             for name, c in room["companies"].items():
                 for h in c["history"]:
@@ -695,20 +767,12 @@ else:
             frozen = comp.get("frozen_fields", [])
             
             if sim_key not in st.session_state:
-                last_decs = comp.get("history", [{}])[-1] if comp.get("history") else {}
-                st.session_state[sim_key] = {
-                    "price": float(last_decs.get("price", product["benchmark_price"])),
-                    "forecast_sales": int(last_decs.get("sales", 3000)), "purchase_qty": int(last_decs.get("sales", 3000)),
-                    "buy_machines": 0, "marketing": 10000.0, "rd_budget": 3000.0, "rse_budget": 2000.0,
-                    "employees": int(comp.get("employees", 2)), "salary": 30000.0, "quality": 2500.0,
-                    "training": 1500.0, "client_terms": 30, "supplier_terms": 30, "new_loan_amount": 0.0,
-                    "new_loan_duration": 3, "espionnage": 0, "sabotage_type": 0, "sabotage_target": "", "sabotage_action": ""
-                }
+                st.session_state[sim_key] = get_default_decs(comp, product)
             
             with tab_dec:
-                with st.expander("📖 GUIDE DU MARCHÉ & INDICATEURS DE BASE", expanded=True):
+                with st.expander("📖 INDICATEURS DE BASE (Voir Menu Gauche pour les Règles Complètes)", expanded=True):
                     st.write(f"**Secteur :** {product['name']}")
-                    st.write(f"**Taille Globale du Marché (100%) :** ~{fmt_num(product['base_market_size_per_team'] * (1.0+market_g) * num_teams)} {product['unit']}/an (Croissance: +{int(market_g*100)}%).")
+                    st.write(f"**Taille Globale du Marché (100%) :** ~{fmt_num(product['base_market_size_per_team'] * (1.0+market_g) * num_teams)} {product['unit']}/an.")
                     st.write(f"**Prix repère moyen :** {product['benchmark_price']} €")
                     st.write(f"⏱️ **Temps de production par salarié :** `{product['base_time_per_unit']} heures / unité`")
                     st.write(f"🏭 **Capacité d'une machine :** `{product['machine_capacity']} unités / an`")
@@ -720,23 +784,23 @@ else:
                     with c2: forecast_sales = st.number_input("Objectif Ventes Prévues", min_value=0, value=st.session_state[sim_key]["forecast_sales"], step=100)
                     with c3: purchase_qty = st.number_input("Quantité à Produire/Acheter", min_value=0, value=st.session_state[sim_key]["purchase_qty"], step=100)
 
-                    st.markdown("### 🏭 2. Production & RH *(Impossibilité de figer la fonction RH)*")
+                    st.markdown("### 🏭 2. Production & RH *(Protégé du sabotage)*")
                     p1, p2, p3 = st.columns(3)
                     with p1:
                         employees = st.number_input("Effectif (Salariés)", min_value=1, value=st.session_state[sim_key]["employees"])
                         salary = st.number_input("Salaire brut/an (€)", min_value=20000.0, value=st.session_state[sim_key]["salary"], step=1000.0)
                     with p2:
-                        training = st.number_input("Budget Formation (€) [Cible: 1-5% Masse Sal.]", min_value=0.0, value=st.session_state[sim_key]["training"], step=500.0)
-                        quality = st.number_input("Budget Qualité (€) [Cible: 0.5-2.5% CA]", min_value=0.0, value=st.session_state[sim_key]["quality"], step=500.0, disabled=("quality" in frozen))
+                        training = st.number_input("Budget Formation (€)", min_value=0.0, value=st.session_state[sim_key]["training"], step=500.0)
+                        quality = st.number_input("Budget Qualité (€)", min_value=0.0, value=st.session_state[sim_key]["quality"], step=500.0, disabled=("quality" in frozen))
                     with p3:
                         buy_machines = st.number_input("Acheter Machines (50K€/u)", min_value=0, value=st.session_state[sim_key]["buy_machines"], disabled=not is_prod_phase)
 
                     st.markdown("### 🚀 3. Stratégie & Finance")
                     f1, f2, f3 = st.columns(3)
                     with f1:
-                        marketing = st.number_input("Budget Pub (€) [Cible: 7.5-15% CA]", min_value=0.0, value=st.session_state[sim_key]["marketing"], step=1000.0, disabled=("marketing" in frozen))
-                        rd_budget = st.number_input("Budget R&D (€) [Cible: Max 30% CA]", min_value=0.0, value=st.session_state[sim_key]["rd_budget"], step=1000.0, disabled=("rd_budget" in frozen))
-                        rse_budget = st.number_input("Budget RSE (€) [Cible: 2-5% CA]", min_value=0.0, value=st.session_state[sim_key]["rse_budget"], step=1000.0, disabled=("rse_budget" in frozen))
+                        marketing = st.number_input("Budget Pub (€)", min_value=0.0, value=st.session_state[sim_key]["marketing"], step=1000.0, disabled=("marketing" in frozen))
+                        rd_budget = st.number_input("Budget R&D (€)", min_value=0.0, value=st.session_state[sim_key]["rd_budget"], step=1000.0, disabled=("rd_budget" in frozen))
+                        rse_budget = st.number_input("Budget RSE (€)", min_value=0.0, value=st.session_state[sim_key]["rse_budget"], step=1000.0, disabled=("rse_budget" in frozen))
                     with f2:
                         client_terms = st.number_input("Délai Clients (jours)", min_value=0, max_value=120, value=st.session_state[sim_key]["client_terms"], disabled=("client_terms" in frozen))
                         supplier_terms = st.number_input("Délai Fournisseurs (jours)", min_value=0, max_value=120, value=st.session_state[sim_key]["supplier_terms"], disabled=("supplier_terms" in frozen))
@@ -745,9 +809,9 @@ else:
                         loan_duration = st.slider("Durée emprunt", 1, 5, value=st.session_state[sim_key]["new_loan_duration"])
 
                     if frozen:
-                        st.warning(f"🔒 Attention, l'action de sabotage ennemie a gelé les champs suivants sur leur ancienne valeur : {', '.join(frozen)}")
+                        st.warning(f"🔒 L'action de sabotage ennemie a gelé ces champs sur leur ancienne valeur : {', '.join(frozen)}")
 
-                    calc_btn = st.form_submit_button("🔄 Calculer mes prévisions")
+                    calc_btn = st.form_submit_button("🔄 Calculer mes prévisions (Brouillon sauvegardé)")
 
                 if calc_btn:
                     st.session_state[sim_key].update({
@@ -758,14 +822,25 @@ else:
                         "supplier_terms": supplier_terms, "new_loan_amount": loan_amount,
                         "new_loan_duration": loan_duration
                     })
+                    # Sauvegarde du brouillon côté serveur pour le chronomètre auto
+                    comp["draft_decisions"] = st.session_state[sim_key].copy()
+                    save_game_to_disk(room)
+                    
                     cf_key = f"cf_{selected_team}_{room['current_year']}"
                     if cf_key in st.session_state:
                         st.session_state[f"cf_prev_{selected_team}_{room['current_year']}"] = st.session_state[cf_key]
 
                 st.markdown("---")
                 if st.button("🔒 VALIDER DÉFINITIVEMENT MES CHOIX", type="primary"):
-                    room["companies"][selected_team]["current_decisions"] = st.session_state[sim_key]
+                    comp["current_decisions"] = st.session_state[sim_key].copy()
                     room["ready_teams"].append(selected_team)
+                    
+                    # Logique du compte à rebours
+                    if len(room["ready_teams"]) == num_teams - 1:
+                        room["turn_deadline"] = time.time() + 300 # 5 minutes en secondes
+                    elif len(room["ready_teams"]) == num_teams:
+                        room["turn_deadline"] = None
+                        
                     save_game_to_disk(room)
                     st.rerun()
 
@@ -775,7 +850,7 @@ else:
             with tab_sim:
                 st.subheader("📊 Compte de Résultat & Prévisions Détaillées")
                 st.metric("Coût de Production Unitaire (après R&D)", f"{forecast['unit_cost']:.2f} €")
-                st.metric("Taux d'intérêt de l'emprunt calculé", f"{forecast['interest_rate']*100:.0f}%", help="Calculé selon la soutenabilité par rapport au Résultat N-1.")
+                st.metric("Taux d'intérêt de l'emprunt calculé", f"{forecast['interest_rate']*100:.0f}%")
                 
                 df_pl = pd.DataFrame([
                     {"Poste": "Chiffre d'Affaires", "Prévu N": forecast["revenue"]},
@@ -840,7 +915,7 @@ else:
                     esp_costs_map = {0: 0, 1: 5000, 2: 20000, 3: 50000, 4: 100000}
                     cost_esp = esp_costs_map.get(esp, 0)
                     if cost_esp > comp["cash"]:
-                        st.markdown("<p style='color:red;'>Impossible sale pauvre</p>", unsafe_allow_html=True)
+                        st.markdown("<p style='color:red;'>Fonds insuffisants</p>", unsafe_allow_html=True)
                         
                     if esp != st.session_state[sim_key]["espionnage"]:
                         st.session_state[sim_key]["espionnage"] = esp
@@ -848,13 +923,12 @@ else:
 
                 with c_sab:
                     st.markdown("#### 2. Sabotage & Lobbying")
-                    st.caption("Gelez la prochaine décision d'un adversaire sur son ancienne valeur ! (Désactivé en Année 1)")
                     s_type = st.selectbox("Acheter une frappe de Sabotage", options=[0,1,2,3], index=st.session_state[sim_key]["sabotage_type"], format_func=lambda x: {0:"0€ - Aucun", 1:"200K€ - Aléatoire", 2:"300K€ - Semi-Ciblée", 3:"500K€ - Chirurgicale"}[x], disabled=(room["current_year"] == 1))
                     
                     sab_costs_map = {0: 0, 1: 200000, 2: 300000, 3: 500000}
                     cost_sab = sab_costs_map.get(s_type, 0)
                     if cost_sab > comp["cash"]:
-                        st.markdown("<p style='color:red;'>Impossible sale pauvre</p>", unsafe_allow_html=True)
+                        st.markdown("<p style='color:red;'>Fonds insuffisants</p>", unsafe_allow_html=True)
                         
                     other_teams = [t for t in room["companies"].keys() if t != selected_team]
                     
@@ -898,12 +972,11 @@ else:
                         st.table(pd.DataFrame(data_l3))
                     if level >= 4:
                         st.markdown("🔴 **Audit Comparatif (Niveau 100k)**")
-                        st.markdown("<p style='color:green;'><b>Pourquoi c'est mieux :</b> Ce niveau analyse précisément vos forces et faiblesses par rapport à la moyenne du marché, vous permettant d'ajuster vos curseurs stratégiques avec une précision chirurgicale sans tâtonner.</p>", unsafe_allow_html=True)
                         
                         all_prices = [c['history'][-1]['price'] for c in room["companies"].values() if c["history"]]
                         avg_price = sum(all_prices) / len(all_prices) if all_prices else 1
                         my_price = comp["history"][-1]["price"]
                         
-                        if my_price > avg_price * 1.1: st.markdown("🔴 **Prix :** Vous êtes trop cher par rapport au marché.")
+                        if my_price > avg_price * 1.1: st.markdown("🔴 **Prix :** Trop cher par rapport au marché.")
                         elif my_price < avg_price * 0.9: st.markdown("🟢 **Prix :** Très compétitif sur les prix.")
                         else: st.markdown("⚪ **Prix :** Parfaitement aligné.")
