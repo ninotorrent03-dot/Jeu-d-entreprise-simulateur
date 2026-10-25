@@ -60,7 +60,7 @@ HELP_EMP = "1. Un salarié mal payé ou surchargé de process qualité produira 
 HELP_SALARY = "1. Minimum légal : 21 000 €. Au SMIC, productivité réduite de 50%.\n2. Un salaire élevé motive et accélère la cadence (+30% max)."
 HELP_TRAIN = "1. Accélère la vitesse de production (plafond à -30% du temps).\n2. Indispensable pour compenser la lenteur induite par un gros budget Qualité."
 HELP_QUAL = "1. Améliore la popularité à court terme.\n2. DANGER : Ralentit fortement la cadence de production (jusqu'à x1.5 de temps). Formez vos salariés pour compenser !"
-HELP_MKT = "1. Effet massif et immédiat sur un an. \n2. Rendement logarithmique : investir des millions finit par saturer. Objectif sain : 10% du CA."
+HELP_MKT = "1. Effet massif et immédiat sur un an.\n2. Rendement logarithmique : investir des millions finit par saturer. Objectif sain : 10% du CA."
 HELP_RD = "1. Effet cumulatif et permanent : réduit le coût de revient unitaire (jusqu'à -70%).\n2. C'est l'outil indispensable pour déclencher une guerre des prix."
 HELP_RSE = "1. Construit une fanbase fidèle et durable (contrairement à la pub éphémère).\n2. C'est un marathon, prévoyez entre 2% et 5% de votre CA par an."
 HELP_CTERMS = "1. Délai accordé aux clients : augmente drastiquement vos ventes.\n2. DANGER : L'argent n'arrive pas cette année ! Risque fatal de découvert bancaire."
@@ -69,7 +69,7 @@ HELP_MACH = "1. Coût : 450 K€. Décuple la production via l'automatisation (A
 HELP_LOAN = "1. Apporte du cash (Taux de 1% à 5%).\n2. Pénalité sévère (Dette restante déduite en double) si non remboursée à la dernière année !"
 
 # ==========================================
-# 3. GÉNÉRATEUR DE CONTEXTE DYNAMIQUE
+# 3. GÉNÉRATEUR DE CONTEXTE DYNAMIQUE & MARCHÉ
 # ==========================================
 PRODUCT_UNIVERSES = [
     {
@@ -128,26 +128,36 @@ YEARLY_EVENTS_CRISIS = [
 ]
 
 def generate_scenario(product):
-    return f"**Secteur : {product['name']}**\n\n*Macro-économie :* {random.choice(MACRO_CONTEXTS)}\n\n*L'Étincelle :* {random.choice(OPPORTUNITIES)}\n\n*Dynamique du marché :* {product['desc']}"
+    return f"**Secteur : {product['name']}**\n\n*Macro-économie :* {random.choice(MACRO_CONTEXTS)}\n\n*L'Étincelle :* {random.choice(OPPORTUNITIES)}\n\n*Dynamique de base :* {product['desc']}"
 
-def generate_yearly_context_text(growth, year):
+def generate_yearly_context_data(growth, year, product, num_teams):
     if growth > 0.15:
         txt = random.choice(YEARLY_EVENTS_BOOM)
         trend = "💥 BOOM ÉCONOMIQUE & EUPHORIE"
-        color = "#2e7d32" 
+        color = "#2e7d32"
     elif growth > 0.0:
         txt = random.choice(YEARLY_EVENTS_NORMAL)
         trend = "📈 CROISSANCE SAINE"
-        color = "#00509e" 
+        color = "#00509e"
     else:
         txt = random.choice(YEARLY_EVENTS_CRISIS)
         trend = "📉 RÉCESSION & CRISE"
-        color = "#c62828" 
+        color = "#c62828"
         
-    return f"<div style='border-left: 5px solid {color}; background-color: #fdfdfd; padding: 15px; border-radius: 4px; box-shadow: 0px 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px;'>" \
-           f"<h4 style='color: {color}; margin-top: 0;'>{trend} (Actualités Année {year})</h4>" \
-           f"<p style='font-size: 15px; color: #444;'><i>« {txt} »</i></p>" \
-           f"</div>"
+    market_size_est = product["base_market_size_per_team"] * (1.0 + growth) * num_teams
+    
+    html_desc = f"""
+    <div style='border-left: 5px solid {color}; background-color: #fdfdfd; padding: 15px; border-radius: 4px; box-shadow: 0px 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px;'>
+        <h4 style='color: {color}; margin-top: 0;'>{trend} (Année {year})</h4>
+        <p style='font-size: 15px; color: #444;'><i>« {txt} »</i></p>
+        <ul style='margin-bottom:0; color: #333;'>
+            <li><b>Taux de croissance du marché :</b> <span style='color: {color}; font-weight:bold;'>{growth*100:+.1f}%</span></li>
+            <li><b>Taille globale estimée du marché :</b> <b>{market_size_est:,.0f} {product['unit']}</b></li>
+            <li><b>Prix de référence conseillé :</b> <b>{product['benchmark_price']} €</b></li>
+        </ul>
+    </div>
+    """
+    return html_desc
 
 EVENTS_POOL = [
     {"type": "neg", "icon": "📉", "txt": "Bad buzz sur les réseaux sociaux concernant un défaut mineur. Perte de popularité.", "cash": -15000, "pop": -10},
@@ -269,13 +279,17 @@ def calculate_forecast(comp, decs, product, is_prod_phase, num_teams, market_gro
     purchase_qty = decs.get("purchase_qty", 0)
     buy_mach = decs.get("buy_machines", 0)
     loan_amount = decs.get("new_loan_amount", 0.0)
-    loan_duration = decs.get("new_loan_duration", 3)
     esp = decs.get("espionnage", 0)
     sab_type = decs.get("sabotage_type", 0)
     def_lvl = decs.get("defense_level", 0)
     
-    intel_cost = (0, 5000, 20000, 50000, 100000)[esp] if esp <= 4 else 0
-    intel_cost += (0, 200000, 300000, 500000)[sab_type] if sab_type <= 3 else 0
+    # Calcul dynamique des coûts de sabotage/défense selon la formule demandée
+    avg_price = product["benchmark_price"]
+    pdm_theorique = 1.0 / num_teams if num_teams > 0 else 0.25
+    base_calc_val = avg_price * pdm_theorique * 0.15 * 10000 # Échelle équilibrée pour les coûts
+    
+    intel_cost = (0, int(base_calc_val * 0.1), int(base_calc_val * 0.4), int(base_calc_val * 1.0), int(base_calc_val * 2.0))[esp] if esp <= 4 else 0
+    intel_cost += (0, int(base_calc_val * 4.0), int(base_calc_val * 6.0), int(base_calc_val * 10.0))[sab_type] if sab_type <= 3 else 0
     intel_cost += def_lvl
 
     adjusted_base_market = product["base_market_size_per_team"] * (1.0 + market_growth_rate)
@@ -431,7 +445,7 @@ def resolve_turn(room):
     sabotage_messages = {t: [] for t in companies.keys()}
     frozen_fields_map = {t: [] for t in companies.keys()}
     target_map = {"Prix": "price", "Pub": "marketing", "Qualité": "quality", "R&D": "rd_budget", "RSE": "rse_budget"}
-    def_chances = {500000: 0.25, 1000000: 0.50, 1500000: 0.75, 2000000: 1.0}
+    def_chances = {50000: 0.25, 100000: 0.50, 200000: 0.75, 400000: 1.0}
     
     for sab in sabotages_to_apply:
         v, act = sab["victim"], sab["action"]
@@ -440,7 +454,7 @@ def resolve_turn(room):
         def_lvl = vic_comp["current_decisions"].get("defense_level", 0)
         
         blocked = False
-        if target_map.get(def_target_name) == act and random.random() < def_chances.get(def_lvl, 0):
+        if target_map.get(def_target_name) == act and random.random() < def_chances.get(def_lvl, 0.5):
             blocked = True
         
         if blocked:
@@ -495,8 +509,12 @@ def resolve_turn(room):
         
         esp = dec.get("espionnage", 0)
         sab = dec.get("sabotage_type", 0)
-        intel_cost = (0, 5000, 20000, 50000, 100000)[esp] if esp <= 4 else 0
-        intel_cost += (0, 200000, 300000, 500000)[sab] if sab <= 3 else 0
+        avg_price = product["benchmark_price"]
+        pdm_theorique = 1.0 / num_teams if num_teams > 0 else 0.25
+        base_calc_val = avg_price * pdm_theorique * 0.15 * 10000
+        
+        intel_cost = (0, int(base_calc_val * 0.1), int(base_calc_val * 0.4), int(base_calc_val * 1.0), int(base_calc_val * 2.0))[esp] if esp <= 4 else 0
+        intel_cost += (0, int(base_calc_val * 4.0), int(base_calc_val * 6.0), int(base_calc_val * 10.0))[sab] if sab <= 3 else 0
         intel_cost += dec.get("defense_level", 0)
         
         if is_prod_phase:
@@ -538,7 +556,6 @@ def resolve_turn(room):
         expenses = hr_cost + mkt + qual + train + rd_bud + rse_bud + storage_cost + depreciation + intel_cost
         
         loan_amount = dec.get("new_loan_amount", 0.0)
-        loan_duration = dec.get("new_loan_duration", 3)
         prev_net_income = comp["history"][-1]["net_income"] if comp["history"] else comp["cash"] * 0.2
         
         interest_rate = 0.05
@@ -549,7 +566,7 @@ def resolve_turn(room):
             elif prev_net_income >= loan_amount / 4: interest_rate = 0.04
             
         if loan_amount > 0:
-            comp["loans"].append({"amount": loan_amount, "annuity": loan_amount / loan_duration, "remaining_years": loan_duration, "rate": interest_rate})
+            comp["loans"].append({"amount": loan_amount, "annuity": loan_amount / dec.get("new_loan_duration", 3), "remaining_years": dec.get("new_loan_duration", 3), "rate": interest_rate})
             comp["cash"] += loan_amount
             comp["bitlife_log"].append(f"🏦 Emprunt contracté : {fmt_k(loan_amount)} au taux de {interest_rate*100:.0f}%.")
             
@@ -625,7 +642,7 @@ def bot_answer(q):
     elif any(w in q for w in ("fournisseur", "fournisseurs")): return "Délai Fournisseurs : Retardez vos paiements (ex: 60 jours) pour préserver le Cash sur votre compte bancaire. C'est de la dette à court terme 100% gratuite."
     elif any(w in q for w in ("rd", "r&d", "recherche")): return "La R&D (Recherche et Développement) réduit de façon PERMANENTE votre Coût de Fabrication Unitaire. Objectif : 4% à 5% du CA chaque année. Incontournable en phase industrielle."
     elif any(w in q for w in ("emprunt", "banque", "dette", "machine")): return "En phase industrielle, les machines coûtent 450 K€ ! L'emprunt (Taux de 1% à 5%) est indispensable. Remboursez tout avant la fin de la partie pour éviter les doubles pénalités."
-    elif any(w in q for w in ("sabotage", "bouclier", "défense")): return "Le Sabotage permet de geler le budget adverse sur une ancienne valeur. Le Bouclier (jusqu'à 2M€) protège une de vos décisions avec un taux de réussite allant de 25% à 100%."
+    elif any(w in q for w in ("sabotage", "bouclier", "défense")): return "Le Sabotage permet de geler le budget adverse sur une ancienne valeur. Le coût est calculé selon le prix moyen et la PDM théorique. Le Bouclier protège une de vos décisions."
     elif any(w in q for w in ("stock", "stockage", "invendu")): return "Ne surproduisez pas ! Tout invendu en fin d'année vous est facturé 4 € par unité en frais d'entrepôt. Surveillez bien les prévisions."
     else: return "🤖 Bonjour CEO ! Posez-moi des questions claires sur un mécanisme (ex: 'Comment marche le prix ?', 'Stratégie RSE ?', 'Délais clients ?')."
 
@@ -689,7 +706,8 @@ if not st.session_state.room_code:
                     market_growths = {str(y): round(random.uniform(-0.15, 0.35), 2) for y in range(1, num_years + 1)}
                     market_growths["1"] = round(random.uniform(0.05, 0.20), 2)
                     
-                    yearly_contexts = {str(y): generate_yearly_context_text(market_growths[str(y)], y) for y in range(1, num_years + 1)}
+                    # Génération des contextes complets pour chaque année
+                    yearly_contexts = {str(y): generate_yearly_context_data(market_growths[str(y)], y, product, 1) for y in range(1, num_years + 1)}
                     
                     room = {
                         "room_code": room_code, "host": host_name.strip(), "product": product,
@@ -697,7 +715,7 @@ if not st.session_state.room_code:
                         "max_years": num_years, "current_year": 1, "status": "waiting",
                         "start_capital": capital_k * 1000.0, "companies": {}, "ready_teams": [],
                         "market_growths": market_growths, 
-                        "yearly_contexts": yearly_contexts, 
+                        "yearly_contexts": yearly_contexts,
                         "turn_deadline": None
                     }
                     room["companies"][host_name.strip()] = init_company(host_name.strip(), room["start_capital"], product)
@@ -721,6 +739,9 @@ if not st.session_state.room_code:
                     elif player_name.strip() in room["companies"]: st.error("Nom déjà pris.")
                     else:
                         room["companies"][player_name.strip()] = init_company(player_name.strip(), room["start_capital"], room["product"])
+                        # Mise à jour des contextes annuels en fonction du nombre de joueurs réel
+                        num_t = len(room["companies"])
+                        room["yearly_contexts"] = {str(y): generate_yearly_context_data(room["market_growths"][str(y)], y, room["product"], num_t) for y in range(1, room["max_years"] + 1)}
                         save_game(room)
                         st.session_state.room_code = j_code
                         st.session_state.player_team = player_name.strip()
@@ -737,7 +758,7 @@ else:
         st.title("🏠 Salle d'attente")
         st.info(f"👉 Code à partager : **{room['room_code']}**")
         
-        st.markdown(f"### 📰 Contexte Mondial & Scénario\n")
+        st.markdown(f"### 📰 Contexte Mondial & Scénario de Départ\n")
         st.info(room['scenario'])
         st.markdown(room['yearly_contexts']["1"], unsafe_allow_html=True)
         
@@ -751,6 +772,8 @@ else:
         for name in room["companies"].keys(): st.write(f"• **{name}**" + (" *(Hôte)*" if name == room["host"] else ""))
         if st.session_state.player_team == room["host"] and st.button("🚀 Lancer la Partie !", type="primary"):
             room["status"] = "playing"
+            # Actualisation finale des contextes avec le nombre exact de joueurs
+            room["yearly_contexts"] = {str(y): generate_yearly_context_data(room["market_growths"][str(y)], y, product, num_teams) for y in range(1, room["max_years"] + 1)}
             save_game(room)
             st.rerun()
         if st.button("Actualiser l'écran"): st.rerun()
@@ -793,30 +816,10 @@ else:
         st.markdown(f"<div class='bitlife-subtitle'>CEO: {st.session_state.player_team} | Employés: {comp['employees']} | Stock: {fmt_num(comp['stock'])}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='bitlife-money'>{fmt_k(comp['cash'])}</div>", unsafe_allow_html=True)
         
-        # NOUVEAU : Encart MASSIF d'actualités avec TOUTES les valeurs mathématiques du marché de l'année
+        # Encart de contexte complet affiché chaque année
         if room["status"] == "playing":
-            with st.expander(f"📰 Contexte Économique & Données du Marché (Année {room['current_year']})", expanded=True):
-                # Texte narratif
+            with st.expander(f"📰 Contexte Économique & État Complet du Marché (Année {room['current_year']})", expanded=True):
                 st.markdown(room["yearly_contexts"][str(room["current_year"])], unsafe_allow_html=True)
-                
-                # Valeurs Pures
-                current_growth = room.get("market_growths", {}).get(str(room["current_year"]), 0.0)
-                adjusted_base_market = product["base_market_size_per_team"] * (1.0 + current_growth)
-                total_market = adjusted_base_market * num_teams
-                
-                st.markdown("### 📊 Valeurs Clés du Marché pour cette année")
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Croissance Annuelle", f"{current_growth*100:+.1f}%")
-                m2.metric("Demande Totale Estimée", f"{fmt_num(total_market)} clients")
-                m3.metric("Prix Réf. (Moyen)", f"{product['benchmark_price']} €")
-                m4.metric("Coût Base (hors R&D)", f"{product['base_cost']} €")
-                
-                if is_prod_phase:
-                    st.markdown("### 🏭 Données Industrielles (Disponibles)")
-                    ci1, ci2, ci3 = st.columns(3)
-                    ci1.metric("Prix d'une Machine", f"{fmt_k(product['mach_price'])}")
-                    ci2.metric("Capacité / Machine", f"{fmt_num(product['machine_capacity'])} unités/an")
-                    ci3.metric("Amortissement", "- 10,0 K€ / an")
         
         if room.get("turn_deadline") and len(room["ready_teams"]) == num_teams - 1 and room["status"] == "playing":
             time_left = int(room["turn_deadline"] - time.time())
@@ -830,9 +833,40 @@ else:
             if st.button("Actualiser"): st.rerun()
         elif room["status"] == "ended":
             st.balloons()
-            st.header("🏆 Classement Final")
-            final_list = [{"Équipe": n, "Valeur Nette Est.": (c["cash"] + c["stock"] * product["base_cost"] * 0.5) / 1000.0} for n, c in room["companies"].items()]
-            st.table(pd.DataFrame(final_list).sort_values(by="Valeur Nette Est.", ascending=False).style.format({"Valeur Nette Est.": "{:,.1f} K€"}))
+            st.header("🏆 FIN DE PARTIE - Bilan & Graphiques Complets")
+            
+            final_list = [{"Équipe": n, "Valeur Nette Est. (K€)": (c["cash"] + c["stock"] * product["base_cost"] * 0.5) / 1000.0} for n, c in room["companies"].items()]
+            st.table(pd.DataFrame(final_list).sort_values(by="Valeur Nette Est. (K€)", ascending=False).style.format({"Valeur Nette Est. (K€)": "{:,.1f} K€"}))
+            
+            st.markdown("---")
+            st.subheader("📈 Courbes Comparatives Globales")
+            
+            # Graphique 1 : Évolution de la Trésorerie
+            fig_cash = go.Figure()
+            for name, c in room["companies"].items():
+                years = [h["year"] for h in c["history"]]
+                cashes = [h["cash"] / 1000.0 for h in c["history"]]
+                fig_cash.add_trace(go.Scatter(x=years, y=cashes, mode='lines+markers', name=name))
+            fig_cash.update_layout(title="Évolution de la Trésorerie (en K€)", xaxis_title="Année", yaxis_title="Trésorerie (K€)", hovermode="x unified")
+            st.plotly_chart(fig_cash, use_container_width=True)
+            
+            # Graphique 2 : Chiffre d'Affaires
+            fig_rev = go.Figure()
+            for name, c in room["companies"].items():
+                years = [h["year"] for h in c["history"]]
+                revs = [h["revenue"] / 1000.0 for h in c["history"]]
+                fig_rev.add_trace(go.Scatter(x=years, y=revs, mode='lines+markers', name=name))
+            fig_rev.update_layout(title="Évolution du Chiffre d'Affaires (en K€)", xaxis_title="Année", yaxis_title="CA (K€)", hovermode="x unified")
+            st.plotly_chart(fig_rev, use_container_width=True)
+
+            # Graphique 3 : Parts de Marché finales / historiques
+            fig_pdm = go.Figure()
+            for name, c in room["companies"].items():
+                years = [h["year"] for h in c["history"]]
+                pdms = [h["real_market_share"] * 100 for h in c["history"]]
+                fig_pdm.add_trace(go.Scatter(x=years, y=pdms, mode='lines+markers', name=name))
+            fig_pdm.update_layout(title="Évolution des Parts de Marché (%)", xaxis_title="Année", yaxis_title="Part de Marché (%)", hovermode="x unified")
+            st.plotly_chart(fig_pdm, use_container_width=True)
 
         t_log, t_dec, t_prev, t_treso, t_audit = st.tabs(["📜 Journal", "💼 Activités", "📈 Prévisions", "🏦 Tréso", "🕵️ Audit"])
         
@@ -1007,16 +1041,26 @@ else:
 
         with t_audit:
             st.subheader("🕵️ Espionnage, Sabotage & Défense")
+            
+            # Application de ta formule exacte de calcul des coûts
+            avg_p = product["benchmark_price"]
+            pdm_t = 1.0 / num_teams if num_teams > 0 else 0.25
+            base_cost_calc = avg_p * pdm_t * 0.15 * 10000
+            
             c_esp, c_sab, c_def = st.columns(3)
             with c_esp:
                 st.markdown("#### 1. Espionnage Industriel")
                 esp_options = [0, 1, 2, 3, 4]
-                esp_labels = {0: "0€ - Aucun", 1: "5 K€ - Rapport Ventes", 2: "20 K€ - Rapport Budgets", 3: "50 K€ - Rapport Trésorerie", 4: "100 K€ - Audit Comparatif Général"}
-                
+                esp_labels = {
+                    0: "0€ - Aucun", 
+                    1: f"{fmt_k(base_cost_calc * 0.1)} - Rapport Ventes", 
+                    2: f"{fmt_k(base_cost_calc * 0.4)} - Rapport Budgets", 
+                    3: f"{fmt_k(base_cost_calc * 1.0)} - Rapport Trésorerie", 
+                    4: f"{fmt_k(base_cost_calc * 2.0)} - Audit Général"
+                }
                 esp_index = st.session_state[sim_key].get("espionnage", 0)
                 if esp_index not in esp_options: esp_index = 0
                 esp = st.selectbox("Niveau d'infiltration", options=esp_options, index=esp_options.index(esp_index), format_func=lambda x: esp_labels.get(x, "Inconnu"))
-                
                 if esp != st.session_state[sim_key]["espionnage"]:
                     st.session_state[sim_key]["espionnage"] = esp
                     st.rerun()
@@ -1024,11 +1068,15 @@ else:
             with c_sab:
                 st.markdown("#### 2. Sabotage Offensif")
                 sab_options = [0, 1, 2, 3]
-                sab_labels = {0: "0€ - Pas d'attaque", 1: "200 K€ - Aveugle (Aléatoire)", 2: "300 K€ - Cible spécifique", 3: "500 K€ - Chirurgicale (Cible+Dossier)"}
-                
+                sab_labels = {
+                    0: "0€ - Pas d'attaque", 
+                    1: f"{fmt_k(base_cost_calc * 4.0)} - Aveugle", 
+                    2: f"{fmt_k(base_cost_calc * 6.0)} - Cible spécifique", 
+                    3: f"{fmt_k(base_cost_calc * 10.0)} - Chirurgicale"
+                }
                 sab_index = st.session_state[sim_key].get("sabotage_type", 0)
                 if sab_index not in sab_options: sab_index = 0
-                s_type = st.selectbox("Type d'attaque cyber/terrain", options=sab_options, index=sab_options.index(sab_index), format_func=lambda x: sab_labels.get(x, "Inconnu"), disabled=(room["current_year"] == 1))
+                s_type = st.selectbox("Type d'attaque", options=sab_options, index=sab_options.index(sab_index), format_func=lambda x: sab_labels.get(x, "Inconnu"), disabled=(room["current_year"] == 1))
                 
                 other_teams = [t for t in room["companies"].keys() if t != selected_team]
                 if s_type != st.session_state[sim_key]["sabotage_type"]:
@@ -1038,7 +1086,7 @@ else:
                 if s_type in (2, 3) and other_teams:
                     current_target = st.session_state[sim_key].get("sabotage_target", "")
                     idx_t = other_teams.index(current_target) if current_target in other_teams else 0
-                    s_target = st.selectbox("🎯 Entreprise ciblée", options=other_teams, index=idx_t)
+                    s_target = st.selectbox("🎯 Cible", options=other_teams, index=idx_t)
                     if s_target != st.session_state[sim_key].get("sabotage_target", ""):
                         st.session_state[sim_key]["sabotage_target"] = s_target
                         st.rerun()
@@ -1047,10 +1095,9 @@ else:
                     s_action_names = ["Prix", "Pub", "Qualité", "R&D", "RSE", "Délai Clients", "Délai Fournisseurs"]
                     current_action = st.session_state[sim_key].get("sabotage_action_name", "Prix")
                     idx_a = s_action_names.index(current_action) if current_action in s_action_names else 0
-                    s_act_name = st.selectbox("🎯 Quel pôle paralyser ?", options=s_action_names, index=idx_a)
+                    s_act_name = st.selectbox("🎯 Pôle visé", options=s_action_names, index=idx_a)
                     s_act_map = {"Prix": "price", "Pub": "marketing", "Qualité": "quality", "R&D": "rd_budget", "RSE": "rse_budget", "Délai Clients": "client_terms", "Délai Fournisseurs": "supplier_terms"}
                     s_act = s_act_map[s_act_name]
-                    
                     if s_act != st.session_state[sim_key].get("sabotage_action", ""):
                         st.session_state[sim_key]["sabotage_action"] = s_act
                         st.session_state[sim_key]["sabotage_action_name"] = s_act_name
@@ -1061,13 +1108,19 @@ else:
                 d_target_options = ["Aucune", "Prix", "Pub", "Qualité", "R&D", "RSE"]
                 current_d_target = st.session_state[sim_key].get("defense_target", "Aucune")
                 if current_d_target not in d_target_options: current_d_target = "Aucune"
-                d_target = st.selectbox("Pôle à surveiller", options=d_target_options, index=d_target_options.index(current_d_target))
+                d_target = st.selectbox("Pôle protégé", options=d_target_options, index=d_target_options.index(current_d_target))
                 
-                d_level_options = [0, 500000, 1000000, 1500000, 2000000]
-                d_level_labels = {0: "0€ (Pas de bouclier)", 500000: "500 K€ (25% chance blocage)", 1000000: "1 M€ (50% chance)", 1500000: "1.5 M€ (75% chance)", 2000000: "2 M€ (Imparable)"}
+                d_level_options = [0, 50000, 100000, 200000, 400000]
+                d_level_labels = {
+                    0: "0€ (Pas de bouclier)", 
+                    50000: f"{fmt_k(50000)} (25%)", 
+                    100000: f"{fmt_k(100000)} (50%)", 
+                    200000: f"{fmt_k(200000)} (75%)", 
+                    400000: f"{fmt_k(400000)} (100%)"
+                }
                 current_d_level = st.session_state[sim_key].get("defense_level", 0)
                 if current_d_level not in d_level_options: current_d_level = 0
-                d_level = st.selectbox("Budget Cybersécurité", options=d_level_options, index=d_level_options.index(current_d_level), format_func=lambda x: d_level_labels.get(x, "Inconnu"))
+                d_level = st.selectbox("Budget Bouclier", options=d_level_options, index=d_level_options.index(current_d_level), format_func=lambda x: d_level_labels.get(x, "Inconnu"))
                 
                 if d_target != st.session_state[sim_key].get("defense_target", "Aucune") or d_level != st.session_state[sim_key].get("defense_level", 0):
                     st.session_state[sim_key]["defense_target"] = d_target
