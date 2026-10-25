@@ -69,7 +69,7 @@ HELP_MACH = "1. Coût : 450 K€. Décuple la production via l'automatisation (A
 HELP_LOAN = "1. Apporte du cash (Taux de 1% à 5%).\n2. Pénalité sévère (Dette restante déduite en double) si non remboursée à la dernière année !"
 
 # ==========================================
-# 3. GÉNÉRATEUR DE CONTEXTE DYNAMIQUE (NEW!)
+# 3. GÉNÉRATEUR DE CONTEXTE DYNAMIQUE
 # ==========================================
 PRODUCT_UNIVERSES = [
     {
@@ -106,7 +106,6 @@ OPPORTUNITIES = [
     "Le gouvernement vient de voter un abattement fiscal exceptionnel pour votre secteur, créant un climat entrepreneurial euphorique."
 ]
 
-# Textes ultra-détaillés pour générer l'actualité année par année selon le taux de croissance
 YEARLY_EVENTS_BOOM = [
     "L'engouement du public est total. Les précommandes explosent à l'échelle mondiale et les distributeurs supplient les fabricants pour obtenir de nouvelles expéditions. C'est l'euphorie !",
     "Des subventions gouvernementales inattendues dopent violemment le pouvoir d'achat des clients pour votre secteur. Les gens achètent sans même regarder les étiquettes de prix.",
@@ -135,20 +134,19 @@ def generate_yearly_context_text(growth, year):
     if growth > 0.15:
         txt = random.choice(YEARLY_EVENTS_BOOM)
         trend = "💥 BOOM ÉCONOMIQUE & EUPHORIE"
-        color = "#2e7d32" # Vert foncé
+        color = "#2e7d32" 
     elif growth > 0.0:
         txt = random.choice(YEARLY_EVENTS_NORMAL)
         trend = "📈 CROISSANCE SAINE"
-        color = "#00509e" # Bleu
+        color = "#00509e" 
     else:
         txt = random.choice(YEARLY_EVENTS_CRISIS)
         trend = "📉 RÉCESSION & CRISE"
-        color = "#c62828" # Rouge
+        color = "#c62828" 
         
     return f"<div style='border-left: 5px solid {color}; background-color: #fdfdfd; padding: 15px; border-radius: 4px; box-shadow: 0px 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px;'>" \
            f"<h4 style='color: {color}; margin-top: 0;'>{trend} (Actualités Année {year})</h4>" \
            f"<p style='font-size: 15px; color: #444;'><i>« {txt} »</i></p>" \
-           f"<p style='margin-bottom:0;'><b>Impact estimé sur le volume d'acheteurs globaux : <span style='color: {color}; font-size:16px;'>{growth*100:+.1f}%</span></b></p>" \
            f"</div>"
 
 EVENTS_POOL = [
@@ -688,9 +686,8 @@ if not st.session_state.room_code:
                     room_code = f"SALON-{random.randint(1000,9999)}"
                     product = random.choice(PRODUCT_UNIVERSES)
                     
-                    # NOUVEAU : Génération des croissances de marché et contextes annuels textuels ultra-détaillés
                     market_growths = {str(y): round(random.uniform(-0.15, 0.35), 2) for y in range(1, num_years + 1)}
-                    market_growths["1"] = round(random.uniform(0.05, 0.20), 2) # L'année 1 est toujours un peu positive pour bien démarrer
+                    market_growths["1"] = round(random.uniform(0.05, 0.20), 2)
                     
                     yearly_contexts = {str(y): generate_yearly_context_text(market_growths[str(y)], y) for y in range(1, num_years + 1)}
                     
@@ -700,7 +697,7 @@ if not st.session_state.room_code:
                         "max_years": num_years, "current_year": 1, "status": "waiting",
                         "start_capital": capital_k * 1000.0, "companies": {}, "ready_teams": [],
                         "market_growths": market_growths, 
-                        "yearly_contexts": yearly_contexts, # NOUVEAU
+                        "yearly_contexts": yearly_contexts, 
                         "turn_deadline": None
                     }
                     room["companies"][host_name.strip()] = init_company(host_name.strip(), room["start_capital"], product)
@@ -740,7 +737,6 @@ else:
         st.title("🏠 Salle d'attente")
         st.info(f"👉 Code à partager : **{room['room_code']}**")
         
-        # NOUVEAU : Affichage détaillé du contexte + contexte de l'Année 1
         st.markdown(f"### 📰 Contexte Mondial & Scénario\n")
         st.info(room['scenario'])
         st.markdown(room['yearly_contexts']["1"], unsafe_allow_html=True)
@@ -797,10 +793,30 @@ else:
         st.markdown(f"<div class='bitlife-subtitle'>CEO: {st.session_state.player_team} | Employés: {comp['employees']} | Stock: {fmt_num(comp['stock'])}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='bitlife-money'>{fmt_k(comp['cash'])}</div>", unsafe_allow_html=True)
         
-        # NOUVEAU : Encart massif d'actualités annuelles dans le grand tableau de bord principal (remplace la petite ligne de la sidebar)
+        # NOUVEAU : Encart MASSIF d'actualités avec TOUTES les valeurs mathématiques du marché de l'année
         if room["status"] == "playing":
-            with st.expander(f"📰 Contexte Économique & État du Marché (Année {room['current_year']})", expanded=True):
+            with st.expander(f"📰 Contexte Économique & Données du Marché (Année {room['current_year']})", expanded=True):
+                # Texte narratif
                 st.markdown(room["yearly_contexts"][str(room["current_year"])], unsafe_allow_html=True)
+                
+                # Valeurs Pures
+                current_growth = room.get("market_growths", {}).get(str(room["current_year"]), 0.0)
+                adjusted_base_market = product["base_market_size_per_team"] * (1.0 + current_growth)
+                total_market = adjusted_base_market * num_teams
+                
+                st.markdown("### 📊 Valeurs Clés du Marché pour cette année")
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Croissance Annuelle", f"{current_growth*100:+.1f}%")
+                m2.metric("Demande Totale Estimée", f"{fmt_num(total_market)} clients")
+                m3.metric("Prix Réf. (Moyen)", f"{product['benchmark_price']} €")
+                m4.metric("Coût Base (hors R&D)", f"{product['base_cost']} €")
+                
+                if is_prod_phase:
+                    st.markdown("### 🏭 Données Industrielles (Disponibles)")
+                    ci1, ci2, ci3 = st.columns(3)
+                    ci1.metric("Prix d'une Machine", f"{fmt_k(product['mach_price'])}")
+                    ci2.metric("Capacité / Machine", f"{fmt_num(product['machine_capacity'])} unités/an")
+                    ci3.metric("Amortissement", "- 10,0 K€ / an")
         
         if room.get("turn_deadline") and len(room["ready_teams"]) == num_teams - 1 and room["status"] == "playing":
             time_left = int(room["turn_deadline"] - time.time())
