@@ -10,11 +10,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 # ==========================================
-# 1. CONFIGURATION, CSS & STATE (STYLE BITLIFE)
+# 1. CONFIGURATION, CSS & STATE
 # ==========================================
 st.set_page_config(page_title="Business Simulator - BitLife Edition", layout="wide", page_icon="💼")
 
-# CSS Inspiré de BitLife (Fonds clairs, textes en gras, jauges, journal chronologique)
 st.markdown("""
 <style>
     .bitlife-header { font-family: 'Arial', sans-serif; font-weight: 800; font-size: 26px; color: #1a1a1a; margin-bottom: -10px; }
@@ -29,7 +28,6 @@ st.markdown("""
     .fill-green { background-color: #4caf50; }
     .fill-orange { background-color: #ff9800; }
     .fill-red { background-color: #f44336; }
-    .fill-blue { background-color: #2196f3; }
     .bitlife-gauge-pct { position: absolute; right: 10px; top: 0; font-size: 12px; font-weight: bold; color: white; line-height: 20px; text-shadow: 1px 1px 2px black; }
 </style>
 """, unsafe_allow_html=True)
@@ -55,130 +53,103 @@ def load_game_from_disk(filepath):
 # ==========================================
 # 2. DICTIONNAIRES & BULLES D'AIDE (TOOLTIPS)
 # ==========================================
-HELP_PRICE = """1. Le Prix est le levier psychologique n°1 de votre entreprise.
-2. Si vous fixez un prix inférieur à 40% de la moyenne du marché, les clients fuiront en pensant à une arnaque ou contrefaçon.
-3. Si vous vendez trop cher sans investir dans la Qualité ou l'Image de Marque, vous ne vendrez rien.
-4. Baisser le prix augmente le volume des ventes, mais détruit votre marge bénéficiaire unitaire.
-5. STRATÉGIE : Au lancement, alignez-vous sur le prix de référence. Baissez-le ensuite uniquement si vous produisez en masse, ou augmentez-le si vous devenez une marque de luxe."""
-
-HELP_SALES = """1. Ce champ n'impacte PAS la réalité de vos ventes finales, c'est une simple estimation pour vous.
-2. Il sert à alimenter l'onglet "Prévisions" pour calculer vos revenus espérés.
-3. Soyez réaliste : si le marché compte 10 000 clients et qu'il y a 5 entreprises, espérer 9 000 ventes est suicidaire.
-4. Observez l'estimation de demande théorique dans les prévisions pour ajuster ce chiffre.
-5. STRATÉGIE : Visez toujours un peu moins que votre capacité de production maximale pour simuler le pire scénario."""
-
-HELP_QTY = """1. Représente la quantité d'unités que vous allez fabriquer ou acheter cette année.
-2. Cette quantité viendra s'ajouter à votre stock existant (les invendus de l'année précédente).
-3. Produire coûte de l'argent (Matières premières, coûts de fabrication).
-4. Attention au sur-stockage : toute unité non vendue à la fin de l'année vous coûtera 4€ en frais d'entrepôt !
-5. STRATÉGIE : Fabriquez juste de quoi couvrir vos 'Ventes espérées' + 5% de marge de sécurité au cas où la demande explose."""
-
-HELP_EMP = """1. Les salariés sont le moteur de votre capacité de production.
-2. Un salarié standard travaille 1600 heures par an.
-3. Leur rendement dépend de trois facteurs : leur salaire (motivation), leur formation (vitesse) et vos exigences de qualité (lenteur).
-4. Un salarié mal payé ou surchargé de process qualité produira beaucoup moins.
-5. STRATÉGIE : Embauchez uniquement si votre 'Capacité RH' est inférieure à votre demande estimée. Licenciez si vous avez trop de stock."""
-
-HELP_SALARY = """1. Le salaire motive les troupes. Le minimum légal (SMIC) est fixé à 21 000 € brut par an.
-2. Payer au SMIC réduit la productivité de 50%. Vos employés traîneront des pieds.
-3. Un salaire confortable (autour de 30 000 €) assure un rendement nominal.
-4. Les hauts salaires augmentent la productivité jusqu'à un maximum de +30%.
-5. STRATÉGIE : Si vous exigez une Qualité extrême (qui ralentit le travail), compensez par de hauts salaires pour regagner en vitesse."""
-
-HELP_TRAIN = """1. La formation permet à vos salariés d'apprendre des méthodes de travail plus rapides.
-2. C'est une dépense annuelle. Chaque euro investi réduit le temps de fabrication par produit.
-3. Le bonus de vitesse est plafonné à -30% du temps de base (au-delà, l'humain a ses limites).
-4. C'est l'antidote parfait contre la lenteur induite par un gros budget Qualité.
-5. STRATÉGIE : Investissez un petit montant régulier dès que votre effectif dépasse 5 personnes pour optimiser la masse salariale."""
-
-HELP_QUAL = """1. La Qualité améliore drastiquement votre popularité et fidélise les clients sur le court terme.
-2. C'est indispensable si vous souhaitez vendre votre produit plus cher que la concurrence (Premium).
-3. DANGER : Exiger de la qualité signifie que vos employés devront être plus minutieux. Cela RALENTIT fortement la production !
-4. La baisse de cadence peut aller jusqu'à diviser votre production par 1.5.
-5. STRATÉGIE : Ciblez entre 0.5% et 2.5% de votre Chiffre d'Affaires. Formez vos employés pour compenser la perte de vitesse."""
-
-HELP_MKT = """1. La Publicité est le stéroïde de votre entreprise : effet massif et immédiat sur les parts de marché.
-2. Cependant, l'effet de la pub ne dure qu'un an. Dès que vous arrêtez de payer, l'effet s'estompe.
-3. Elle augmente aussi très légèrement votre 'Notoriété' (Brand Awareness) permanente.
-4. Les rendements sont décroissants (mathématique logarithmique) : investir 1 million ne vous donnera pas 100% du marché.
-5. STRATÉGIE : Le ratio d'or est d'investir entre 7.5% et 15% de votre CA de l'année précédente pour maintenir la croissance."""
-
-HELP_RD = """1. La R&D (Recherche et Développement) sert à optimiser vos coûts de fabrication à la source.
-2. Son effet est CUMULATIF et PERMANENT. L'investissement de l'année N s'ajoute à l'année N-1.
-3. À long terme, la R&D peut réduire le coût de revient unitaire de votre produit jusqu'à -70% !
-4. C'est l'outil indispensable pour déclencher une "Guerre des prix" et écraser vos concurrents.
-5. STRATÉGIE : Sanctuarisez toujours entre 4% et 5% de votre Chiffre d'Affaires pour la R&D, dès la première année."""
-
-HELP_RSE = """1. La RSE (Responsabilité Sociétale des Entreprises) englobe l'écologie, l'éthique et le social.
-2. Contrairement à la Pub qui est éphémère, la RSE est CUMULATIVE. Elle construit une base de fans fidèles.
-3. Les clients d'aujourd'hui sont très sensibles à la RSE. Cela augmente massivement la demande théorique.
-4. Le bonus de PdM est plafonné pour rester réaliste, mais il garantit un flux régulier de clients même si vos prix sont hauts.
-5. STRATÉGIE : Investissez entre 2% et 5% du CA annuellement. C'est un marathon, pas un sprint."""
-
-HELP_CTERMS = """1. Délai Clients : Combien de jours accordez-vous à vos clients pour vous payer ?
-2. Un délai long (ex: 60 jours) rassure les distributeurs et AUGMENTE VOS VENTES.
-3. DANGER MORTEL : Si vous vendez avec 60 jours de délai, l'argent de ces ventes n'arrivera pas dans vos caisses cette année !
-4. Cela crée un décalage de trésorerie (BFR) qui peut vous plonger dans un découvert bancaire fatal.
-5. STRATÉGIE : Laissez à 30 jours au début. N'augmentez ce délai que si vous avez un gros matelas de Trésorerie."""
-
-HELP_STERMS = """1. Délai Fournisseurs : Combien de jours prenez-vous pour payer vos propres fournisseurs de matières premières ?
-2. Un délai long (ex: 60 jours) PRÉSERVE VOTRE TRÉSORERIE immédiate, car vous gardez l'argent plus longtemps.
-3. C'est une dette gratuite à court terme. 
-4. Les fournisseurs n'aiment pas ça, mais dans ce simulateur, l'impact négatif est limité.
-5. STRATÉGIE : Essayez toujours d'avoir un Délai Fournisseur SUPÉRIEUR ou ÉGAL à votre Délai Client pour équilibrer la banque."""
-
-HELP_MACH = """1. ACHAT DE MACHINES LOURDES. (Disponible uniquement en Phase Industrielle).
-2. ATTENTION : Les machines coûtent extrêmement cher (450 000 € l'unité).
-3. Une machine décuple votre capacité de production en remplaçant la lenteur humaine par l'automatisation.
-4. Ces machines subissent une dépréciation (amortissement) de 10 000 € par an qui impactera votre résultat net.
-5. STRATÉGIE : Souscrivez obligatoirement à un Emprunt Bancaire pour financer cet achat, sinon c'est la banqueroute immédiate."""
-
-HELP_LOAN = """1. L'Emprunt Bancaire vous apporte du Cash immédiat pour investir (Pub, R&D, Machines).
-2. Le taux d'intérêt varie de 1% (entreprise très rentable) à 5% (entreprise au bord du gouffre).
-3. Vous paierez des intérêts et rembourserez le capital chaque année selon la durée choisie.
-4. À la fin de la simulation (Année 8 ou 10), toute dette restante sera PÉNALISÉE (Le solde est déduit en double de votre score final !).
-5. STRATÉGIE : Empruntez fort au début pour conquérir le marché, puis remboursez tout avant la dernière année."""
+HELP_PRICE = "1. Si vous fixez un prix inférieur à 40% de la moyenne, les clients penseront à une arnaque.\n2. Baisser le prix augmente le volume mais détruit la marge."
+HELP_SALES = "1. Ce n'est qu'une estimation pour vous.\n2. Visez toujours un peu moins que votre capacité de production maximale pour simuler le pire scénario (BFR)."
+HELP_QTY = "1. Représente la quantité à fabriquer/acheter.\n2. Attention au sur-stockage : les invendus coûtent 4€ en frais d'entrepôt par unité en fin d'année !"
+HELP_EMP = "1. Un salarié mal payé ou surchargé de process qualité produira beaucoup moins.\n2. Embauchez uniquement si votre 'Capacité RH' est inférieure à votre demande estimée."
+HELP_SALARY = "1. Minimum légal : 21 000 €. Au SMIC, productivité réduite de 50%.\n2. Un salaire élevé motive et accélère la cadence (+30% max)."
+HELP_TRAIN = "1. Accélère la vitesse de production (plafond à -30% du temps).\n2. Indispensable pour compenser la lenteur induite par un gros budget Qualité."
+HELP_QUAL = "1. Améliore la popularité à court terme.\n2. DANGER : Ralentit fortement la cadence de production (jusqu'à x1.5 de temps). Formez vos salariés pour compenser !"
+HELP_MKT = "1. Effet massif et immédiat sur un an. \n2. Rendement logarithmique : investir des millions finit par saturer. Objectif sain : 10% du CA."
+HELP_RD = "1. Effet cumulatif et permanent : réduit le coût de revient unitaire (jusqu'à -70%).\n2. C'est l'outil indispensable pour déclencher une guerre des prix."
+HELP_RSE = "1. Construit une fanbase fidèle et durable (contrairement à la pub éphémère).\n2. C'est un marathon, prévoyez entre 2% et 5% de votre CA par an."
+HELP_CTERMS = "1. Délai accordé aux clients : augmente drastiquement vos ventes.\n2. DANGER : L'argent n'arrive pas cette année ! Risque fatal de découvert bancaire."
+HELP_STERMS = "1. Délai pris pour payer vos fournisseurs. Préserve votre Cash immédiat.\n2. Dette gratuite à court terme. Essayez d'avoir Délai Fourn. >= Délai Client."
+HELP_MACH = "1. Coût : 450 K€. Décuple la production via l'automatisation (Année 5+).\n2. Emprunt obligatoire, sinon banqueroute immédiate due à la sortie de cash."
+HELP_LOAN = "1. Apporte du cash (Taux de 1% à 5%).\n2. Pénalité sévère (Dette restante déduite en double) si non remboursée à la dernière année !"
 
 # ==========================================
-# 3. GÉNÉRATEUR DE CONTEXTE DYNAMIQUE
+# 3. GÉNÉRATEUR DE CONTEXTE DYNAMIQUE (NEW!)
 # ==========================================
 PRODUCT_UNIVERSES = [
     {
         "name": "Vélos Électriques Urbains", "unit": "vélos",
         "benchmark_price": 1200.0, "base_cost": 650.0, "base_market_size_per_team": 6000,
         "base_time_per_unit": 0.5, "machine_capacity": 4000, "mach_price": 450000.0,
-        "desc": "La mobilité douce explose. Les villes ferment leurs centres aux voitures."
+        "desc": "La mobilité douce explose. Les villes ferment progressivement leurs centres aux voitures et les infrastructures cyclables se multiplient."
     },
     {
         "name": "Smartphones Éco-reconditionnés", "unit": "smartphones",
         "benchmark_price": 480.0, "base_cost": 240.0, "base_market_size_per_team": 12000,
         "base_time_per_unit": 0.25, "machine_capacity": 8000, "mach_price": 450000.0,
-        "desc": "Face à la pénurie de puces, le reconditionné est le nouvel eldorado tech."
+        "desc": "Face à la pénurie de terres rares et à l'inflation, le reconditionné est devenu le nouvel eldorado technologique du grand public."
     },
     {
         "name": "Enceintes Hi-Fi Premium", "unit": "enceintes",
         "benchmark_price": 340.0, "base_cost": 160.0, "base_market_size_per_team": 8000,
         "base_time_per_unit": 0.35, "machine_capacity": 5000, "mach_price": 450000.0,
-        "desc": "Un marché de niche pour audiophiles, très sensible à la qualité et au design."
+        "desc": "Un marché de niche pour audiophiles passionnés, extrêmement sensible à la qualité des finitions, à l'acoustique et au design."
     }
 ]
 
 MACRO_CONTEXTS = [
-    "L'économie mondiale est en pleine relance post-récession. L'inflation est basse et le pouvoir d'achat des ménages est au beau fixe.",
-    "Le contexte géopolitique est tendu. Les taux d'intérêts bancaires sont instables et les consommateurs épargnent plus qu'ils ne dépensent.",
-    "Une nouvelle loi européenne subventionne fortement votre secteur d'activité, attirant l'attention des médias et des investisseurs.",
-    "Une crise logistique mondiale frappe les ports asiatiques, rendant l'approvisionnement en matières premières complexe et coûteux."
+    "L'économie mondiale est en pleine relance post-récession. L'inflation est maîtrisée, le chômage baisse et le pouvoir d'achat des ménages est au beau fixe.",
+    "Le contexte géopolitique est tendu. Les taux d'intérêts bancaires sont instables et les consommateurs, inquiets pour l'avenir, épargnent massivement.",
+    "Une nouvelle loi de transition écologique européenne subventionne fortement votre secteur d'activité, attirant l'attention des investisseurs.",
+    "Une crise logistique mondiale frappe les grands ports asiatiques, rendant l'approvisionnement en matières premières complexe et capricieux."
 ]
 
 OPPORTUNITIES = [
-    "Cependant, une tendance virale sur TikTok a soudainement mis votre type de produit sous les projecteurs des moins de 25 ans.",
-    "Par chance, le principal leader historique du marché vient de faire faillite suite à un scandale, laissant d'énormes parts de marché vacantes.",
-    "De plus, les nouvelles normes écologiques poussent les entreprises B2B à acheter vos produits pour leurs propres salariés.",
-    "Une récente baisse d'impôts sur les sociétés vous donne un environnement fiscal très favorable pour réinvestir vos profits."
+    "Une tendance virale inattendue sur les réseaux sociaux a soudainement mis votre typologie de produit sous le feu des projecteurs.",
+    "Le leader historique de votre marché vient d'être démantelé suite à un grave scandale financier, laissant un vide immense à combler pour les nouveaux entrants.",
+    "De nouvelles directives imposent aux grandes entreprises (B2B) de s'équiper massivement de vos produits pour leurs propres salariés.",
+    "Le gouvernement vient de voter un abattement fiscal exceptionnel pour votre secteur, créant un climat entrepreneurial euphorique."
+]
+
+# Textes ultra-détaillés pour générer l'actualité année par année selon le taux de croissance
+YEARLY_EVENTS_BOOM = [
+    "L'engouement du public est total. Les précommandes explosent à l'échelle mondiale et les distributeurs supplient les fabricants pour obtenir de nouvelles expéditions. C'est l'euphorie !",
+    "Des subventions gouvernementales inattendues dopent violemment le pouvoir d'achat des clients pour votre secteur. Les gens achètent sans même regarder les étiquettes de prix.",
+    "Une tendance internationale propulse la demande à des niveaux historiques. La presse ne parle que de ça, et posséder votre produit est devenu un marqueur social indispensable.",
+    "Un concurrent international majeur a vu ses produits interdits d'importation, reportant soudainement toute la demande continentale sur les acteurs locaux de votre marché."
+]
+
+YEARLY_EVENTS_NORMAL = [
+    "Le marché arrive à un stade de maturité stable. Les consommateurs sont de plus en plus éduqués, comparent scrupuleusement les offres et n'achètent que s'ils perçoivent une vraie qualité.",
+    "Croissance saine et régulière. Le climat des affaires est serein, mais la guerre commerciale exige de se démarquer par la publicité ou par la RSE pour espérer briller.",
+    "Légère évolution des normes de consommation. Le marché grandit en douceur. Les acteurs historiques qui ont de bonnes marges en profitent pour asseoir leur domination.",
+    "Le climat macro-économique est neutre. La demande suit précisément les prévisions prudentes des analystes. Une année classique où la rigueur comptable fera la différence."
+]
+
+YEARLY_EVENTS_CRISIS = [
+    "Une violente crise de confiance frappe le secteur. Les acheteurs sont terrifiés par l'inflation et coupent radicalement toutes leurs dépenses non-essentielles.",
+    "Un krach de la chaîne logistique et une flambée du coût de la vie réduisent drastiquement le budget alloué par les ménages. Vendre devient un parcours du combattant.",
+    "De nouveaux impôts écologiques très durs ou des taxes douanières surprises font s'effondrer le marché. Les clients repoussent leurs achats à l'année prochaine.",
+    "Un vent de panique souffle sur la bourse. Le gel des budgets touche à la fois le B2B et le grand public. La demande globale se rétracte brutalement."
 ]
 
 def generate_scenario(product):
-    return f"**Secteur : {product['name']}**\n\n*Macro-économie :* {random.choice(MACRO_CONTEXTS)}\n\n*Dynamique du marché :* {product['desc']}\n\n*L'Étincelle :* {random.choice(OPPORTUNITIES)}"
+    return f"**Secteur : {product['name']}**\n\n*Macro-économie :* {random.choice(MACRO_CONTEXTS)}\n\n*L'Étincelle :* {random.choice(OPPORTUNITIES)}\n\n*Dynamique du marché :* {product['desc']}"
+
+def generate_yearly_context_text(growth, year):
+    if growth > 0.15:
+        txt = random.choice(YEARLY_EVENTS_BOOM)
+        trend = "💥 BOOM ÉCONOMIQUE & EUPHORIE"
+        color = "#2e7d32" # Vert foncé
+    elif growth > 0.0:
+        txt = random.choice(YEARLY_EVENTS_NORMAL)
+        trend = "📈 CROISSANCE SAINE"
+        color = "#00509e" # Bleu
+    else:
+        txt = random.choice(YEARLY_EVENTS_CRISIS)
+        trend = "📉 RÉCESSION & CRISE"
+        color = "#c62828" # Rouge
+        
+    return f"<div style='border-left: 5px solid {color}; background-color: #fdfdfd; padding: 15px; border-radius: 4px; box-shadow: 0px 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px;'>" \
+           f"<h4 style='color: {color}; margin-top: 0;'>{trend} (Actualités Année {year})</h4>" \
+           f"<p style='font-size: 15px; color: #444;'><i>« {txt} »</i></p>" \
+           f"<p style='margin-bottom:0;'><b>Impact estimé sur le volume d'acheteurs globaux : <span style='color: {color}; font-size:16px;'>{growth*100:+.1f}%</span></b></p>" \
+           f"</div>"
 
 EVENTS_POOL = [
     {"type": "neg", "icon": "📉", "txt": "Bad buzz sur les réseaux sociaux concernant un défaut mineur. Perte de popularité.", "cash": -15000, "pop": -10},
@@ -194,7 +165,7 @@ EVENTS_POOL = [
 def analyze_company_name(name):
     name_l = name.lower()
     score = 0.0
-    troll_words = {"caca", "pipi", "boudin", "prout", "zizi", "bite", "cul", "merde", "con", "fuck", "shit", "lol", "mdr", "xd", "test", "truc", "machin", "bidule"}
+    troll_words = {"caca", "pipi", "boudin", "prout", "zizi", "bite", "cul", "merde", "con", "fuck", "shit", "lol", "mdr", "xd"}
     
     if any(w in name_l for w in troll_words): score -= 0.15
     elif len(name.strip()) <= 2 or name.strip().isdigit(): score -= 0.10
@@ -246,18 +217,14 @@ def get_default_decs(comp, product):
 
 def get_unit_cost(base_cost, rd_total):
     if rd_total <= 0: return base_cost
-    # Fonction logarithmique asymtotique pour la R&D (cap à -70% des coûts)
     reduction = 0.70 * (1.0 - math.exp(-rd_total / 250000.0))
     return base_cost * (1.0 - reduction)
 
 def get_hr_metrics(employees, salary, quality_budget, training_budget, base_time):
     total_hours = employees * 1600
-    
-    # Caps réalistes : Qualité ralentit max de 50%, Formation accélère max de 30%
     time_penalty = min(1.50, 1.0 + (math.sqrt(quality_budget) / 2000.0)) if quality_budget > 0 else 1.0
     time_bonus = max(0.70, 1.0 - (math.sqrt(training_budget) / 1500.0)) if training_budget > 0 else 1.0
-    
-    motivation = min(1.30, max(0.50, 1.0 + ((salary - 21000) / 40000.0))) # SMIC=21k -> 1.0
+    motivation = min(1.30, max(0.50, 1.0 + ((salary - 21000) / 40000.0))) 
     
     effective_hours = total_hours * motivation
     time_per_unit = base_time * time_penalty * time_bonus
@@ -270,29 +237,20 @@ def get_hr_metrics(employees, salary, quality_budget, training_budget, base_time
 
 def get_popularity_gauges(comp, decs):
     rse_val = decs.get("rse_budget", 0) + comp.get("rse_cumul", 0)
-    # Logarithmique pour que ça s'aplatisse vite. Score sur 100.
     rse_score = min(100.0, 100.0 * (1.0 - math.exp(-rse_val / 100000.0))) if rse_val > 0 else 0.0
-    
     qual_val = decs.get("quality", 0)
     qual_score = min(100.0, 100.0 * (1.0 - math.exp(-qual_val / 50000.0))) if qual_val > 0 else 0.0
-    
     popularity = (rse_score * 0.4) + (qual_score * 0.6)
     return rse_score, qual_score, popularity
 
 def get_theo_demand(base_demand, price, bench_price, marketing, quality, rse, client_terms, brand_aw, popularity):
     price_ratio = bench_price / price if price > 0 else 1.0
-    price_factor = price_ratio ** 1.5 # Moins punitif exponentiellement
-    
+    price_factor = price_ratio ** 1.5 
     suspicion_penalty = (price / (bench_price * 0.4)) ** 2.0 if price < bench_price * 0.4 else 1.0
     
-    # Plafonds stricts (Caps) pour empêcher les croissances irréalistes
-    # Marketing cap à +80% de demande brute
     mkt_factor = min(1.80, 1.0 + (math.sqrt(marketing) / 500.0)) if marketing > 0 else 1.0
-    # Qualité cap à +50%
     qual_factor = min(1.50, 1.0 + (math.sqrt(quality) / 400.0)) if quality > 0 else 1.0
-    # RSE cap à +60%
     rse_factor = min(1.60, 1.0 + (math.sqrt(rse) / 600.0)) if rse > 0 else 1.0
-    
     terms_factor = min(1.20, 1.0 + (client_terms / 90.0) * 0.2)
     brand_factor = min(1.30, 1.0 + (brand_aw / 100.0) * 0.3)
     
@@ -326,14 +284,10 @@ def calculate_forecast(comp, decs, product, is_prod_phase, num_teams, market_gro
     total_market_size_est = adjusted_base_market * num_teams
     
     rse_score, qual_score, popularity = get_popularity_gauges(comp, decs)
-    
-    # Demande estimée (seul contre le marché neutre pour le calcul des jauges)
     theo_demand = get_theo_demand(adjusted_base_market, price, product["benchmark_price"], mkt, qual, rse_bud + comp.get("rse_cumul",0), c_terms, comp["brand_awareness"], popularity)
-    
-    # Impact normalisé RSE pour les stats
     theo_demand_no_rse = get_theo_demand(adjusted_base_market, price, product["benchmark_price"], mkt, qual, 0, c_terms, comp["brand_awareness"], popularity)
+    
     rse_pdm_gain = (theo_demand - theo_demand_no_rse) / total_market_size_est * 100 if total_market_size_est > 0 else 0
-    # Plafond visuel de +25% max pour l'impact de la RSE sur la jauge
     rse_pdm_gain = min(25.0, rse_pdm_gain)
     
     hr_metrics = get_hr_metrics(employees, salary, qual, train, product["base_time_per_unit"])
@@ -349,7 +303,7 @@ def calculate_forecast(comp, decs, product, is_prod_phase, num_teams, market_gro
     revenue = sales * price
     purchases_value = purchase_qty * unit_cost
     
-    hr_cost = employees * salary * 1.45 # Charges patronales
+    hr_cost = employees * salary * 1.45 
     depreciation = total_machines * 10000.0 if is_prod_phase else 0.0
     machine_buy_cash = buy_mach * product["mach_price"] if is_prod_phase else 0.0
     stock_final = available_stock - sales
@@ -357,7 +311,6 @@ def calculate_forecast(comp, decs, product, is_prod_phase, num_teams, market_gro
     
     expenses = hr_cost + mkt + qual + train + rd_bud + rse_bud + storage_cost + depreciation + intel_cost
     
-    # Calcul Décalages de trésorerie (BFR)
     cash_delayed_clients = revenue * (min(c_terms, 365) / 365.0)
     cash_delayed_suppliers = purchases_value * (min(s_terms, 365) / 365.0)
     
@@ -382,7 +335,6 @@ def calculate_forecast(comp, decs, product, is_prod_phase, num_teams, market_gro
     cash_out = (purchases_value - cash_delayed_suppliers) + comp.get("pending_supplier_cash", 0.0) + (expenses - depreciation) + machine_buy_cash + interest + tax + repayments
     end_cash = comp["cash"] + cash_in - cash_out
     
-    # Calcul des courbes mensuelles
     monthly_rev = revenue / 12.0
     monthly_purch = purchases_value / 12.0
     monthly_exp = (expenses + interest + tax + repayments + machine_buy_cash) / 12.0
@@ -466,20 +418,16 @@ def resolve_turn(room):
             if s_type > 0:
                 other_teams = [t for t in companies.keys() if t != attacker_name]
                 if not other_teams: continue
-                
                 victim = dec.get("sabotage_target", "")
                 action = dec.get("sabotage_action", "")
-                
                 if s_type == 1:
-                    victim = random.choice(other_teams)
-                    action = random.choice(SABOTAGE_LIST)
+                    victim, action = random.choice(other_teams), random.choice(SABOTAGE_LIST)
                 elif s_type == 2:
                     if victim not in other_teams: victim = random.choice(other_teams)
                     action = random.choice(SABOTAGE_LIST)
                 elif s_type == 3:
                     if victim not in other_teams: victim = random.choice(other_teams)
                     if action not in SABOTAGE_FIELDS: action = random.choice(SABOTAGE_LIST)
-                    
                 sabotages_to_apply.append({"victim": victim, "action": action, "attacker": attacker_name})
 
     sabotage_messages = {t: [] for t in companies.keys()}
@@ -488,22 +436,19 @@ def resolve_turn(room):
     def_chances = {500000: 0.25, 1000000: 0.50, 1500000: 0.75, 2000000: 1.0}
     
     for sab in sabotages_to_apply:
-        v = sab["victim"]
-        act = sab["action"]
+        v, act = sab["victim"], sab["action"]
         vic_comp = companies[v]
-        
         def_target_name = vic_comp["current_decisions"].get("defense_target", "Aucune")
         def_lvl = vic_comp["current_decisions"].get("defense_level", 0)
         
         blocked = False
-        if target_map.get(def_target_name) == act:
-            if random.random() < def_chances.get(def_lvl, 0):
-                blocked = True
+        if target_map.get(def_target_name) == act and random.random() < def_chances.get(def_lvl, 0):
+            blocked = True
         
         if blocked:
-            sabotage_messages[v].append(f"🛡️ Sabotage sur {FIELD_NAMES.get(act, act)} bloqué par votre Bouclier !")
-            sabotage_messages[sab["attacker"]].append(f"❌ Votre sabotage sur {v} a été bloqué par son bouclier !")
-            vic_comp["bitlife_log"].append(f"🔒 ALERTE : Le bouclier de l'entreprise a bloqué une tentative de sabotage de {sab['attacker']} ciblant notre {FIELD_NAMES.get(act, act)}.")
+            sabotage_messages[v].append(f"🛡️ Sabotage sur {FIELD_NAMES.get(act, act)} bloqué !")
+            sabotage_messages[sab["attacker"]].append(f"❌ Votre sabotage sur {v} a été bloqué !")
+            vic_comp["bitlife_log"].append(f"🔒 ALERTE : Le bouclier a bloqué un sabotage ciblant notre {FIELD_NAMES.get(act, act)}.")
         elif vic_comp["history"]:
             hist_key = act
             if act == "marketing": hist_key = "mkt"
@@ -514,8 +459,8 @@ def resolve_turn(room):
             old_val = vic_comp["history"][-1].get(hist_key, 0)
             vic_comp["current_decisions"][act] = old_val
             frozen_fields_map[v].append(act)
-            sabotage_messages[v].append(f"⚠️ SABOTAGE : {FIELD_NAMES.get(act, act)} gelé à l'ancienne valeur !")
-            vic_comp["bitlife_log"].append(f"🛑 CATASTROPHE : Nous avons été sabotés ! Notre {FIELD_NAMES.get(act, act)} a été gelé à l'ancienne valeur.")
+            sabotage_messages[v].append(f"⚠️ SABOTAGE : {FIELD_NAMES.get(act, act)} gelé !")
+            vic_comp["bitlife_log"].append(f"🛑 CATASTROPHE : Notre {FIELD_NAMES.get(act, act)} a été saboté et gelé !")
 
     for name, comp in companies.items():
         comp["frozen_fields"] = frozen_fields_map[name]
@@ -526,12 +471,7 @@ def resolve_turn(room):
         rse_tot = dec.get("rse_budget", 0.0) + comp.get("rse_cumul", 0.0)
         _, _, pop = get_popularity_gauges(comp, dec)
         name_bonus = 1.0 + comp.get("name_score", 0.0) if room["current_year"] == 1 else 1.0
-        
-        scores[name] = get_theo_demand(
-            adjusted_base_market, dec.get("price", product["benchmark_price"]), product["benchmark_price"], 
-            dec.get("marketing", 0.0), dec.get("quality", 0.0), rse_tot, 
-            float(dec.get("client_terms", 0)), comp["brand_awareness"], pop
-        ) * name_bonus
+        scores[name] = get_theo_demand(adjusted_base_market, dec.get("price", product["benchmark_price"]), product["benchmark_price"], dec.get("marketing", 0.0), dec.get("quality", 0.0), rse_tot, float(dec.get("client_terms", 0)), comp["brand_awareness"], pop) * name_bonus
 
     total_score = sum(scores.values()) if sum(scores.values()) > 0 else 1.0
     hazard_msgs = {name: random.choice(EVENTS_POOL) for name in companies.keys()}
@@ -574,14 +514,13 @@ def resolve_turn(room):
             depreciation = 0.0
             
         team_demand = total_market_demand * (scores[name] / total_score)
-        
         available_stock = comp["stock"] + purchase_qty
         hr_cap = get_hr_metrics(employees, salary, qual, train, product["base_time_per_unit"])["hr_cap"]
         
         actual_sales = min(team_demand, available_stock, hr_cap, prod_cap)
         
-        if actual_sales >= available_stock * 0.9 and available_stock > 0: comp["bitlife_log"].append(f"🔥 Succès commercial ! Nous avons vendu la quasi-totalité de nos stocks ({fmt_num(actual_sales)} unités).")
-        elif actual_sales < available_stock * 0.5: comp["bitlife_log"].append(f"📉 Année difficile. Beaucoup de stocks invendus. Seulement {fmt_num(actual_sales)} unités écoulées sur {fmt_num(available_stock)} disponibles.")
+        if actual_sales >= available_stock * 0.9 and available_stock > 0: comp["bitlife_log"].append(f"🔥 Succès ! {fmt_num(actual_sales)} unités vendues sur nos stocks.")
+        elif actual_sales < available_stock * 0.5: comp["bitlife_log"].append(f"📉 Difficile... Beaucoup d'invendus ({fmt_num(available_stock - actual_sales)}).")
             
         real_market_share = actual_sales / total_market_demand if total_market_demand > 0 else 0
         revenue = actual_sales * price
@@ -596,10 +535,8 @@ def resolve_turn(room):
         comp["pending_supplier_cash"] = cash_delayed_suppliers
         
         hr_cost = employees * salary * 1.45
-        
         comp["stock"] = available_stock - actual_sales
         storage_cost = comp["stock"] * 4.0
-        
         expenses = hr_cost + mkt + qual + train + rd_bud + rse_bud + storage_cost + depreciation + intel_cost
         
         loan_amount = dec.get("new_loan_amount", 0.0)
@@ -616,10 +553,9 @@ def resolve_turn(room):
         if loan_amount > 0:
             comp["loans"].append({"amount": loan_amount, "annuity": loan_amount / loan_duration, "remaining_years": loan_duration, "rate": interest_rate})
             comp["cash"] += loan_amount
-            comp["bitlife_log"].append(f"🏦 Nous avons contracté un emprunt de {fmt_k(loan_amount)} au taux de {interest_rate*100:.0f}%.")
+            comp["bitlife_log"].append(f"🏦 Emprunt contracté : {fmt_k(loan_amount)} au taux de {interest_rate*100:.0f}%.")
             
-        interest = 0
-        repayments = 0
+        interest, repayments = 0, 0
         for l in comp["loans"]:
             if l["remaining_years"] > 0:
                 interest += l["amount"] * l["rate"]
@@ -639,7 +575,7 @@ def resolve_turn(room):
             overdraft_fee = abs(comp["cash"]) * 0.12
             comp["cash"] -= overdraft_fee
             net_income -= overdraft_fee
-            comp["bitlife_log"].append(f"💸 DÉCOUVERT BANCAIRE ! La banque a prélevé {fmt_k(overdraft_fee)} d'agios.")
+            comp["bitlife_log"].append(f"💸 DÉCOUVERT BANCAIRE ! Agios : {fmt_k(overdraft_fee)}.")
 
         comp["employees"] = employees
         comp["brand_awareness"] = max(1.0, min(100.0, comp["brand_awareness"] + (mkt / 20000.0)))
@@ -658,7 +594,7 @@ def resolve_turn(room):
             "price": price, "unit_cost": unit_cost, "salary": salary, "employees": employees,
             "espionnage_level": esp, "event_msg": full_msg
         })
-        comp["bitlife_log"].append(f"📊 Fin de l'Année {room['current_year']}. Chiffre d'Affaires généré : {fmt_k(revenue)} | Résultat Net : {fmt_k(net_income)}")
+        comp["bitlife_log"].append(f"📊 Fin d'Année {room['current_year']}. CA généré : {fmt_k(revenue)} | R. Net : {fmt_k(net_income)}")
         comp["current_decisions"] = {}
         comp["draft_decisions"] = {}
 
@@ -672,9 +608,8 @@ def resolve_turn(room):
             remaining_debt = sum(l["amount"] for l in comp["loans"] if l["remaining_years"] > 0)
             if remaining_debt > 0:
                 comp["cash"] -= (remaining_debt * 2)
-                comp["bitlife_log"].append(f"❌ FIN DE PARTIE : Liquidation de la dette non remboursée avec pénalité double (-{fmt_k(remaining_debt * 2)}).")
-                if comp["history"]:
-                    comp["history"][-1]["net_income"] -= (remaining_debt * 2)
+                comp["bitlife_log"].append(f"❌ FIN DE PARTIE : Liquidation dette non remboursée (Pénalité double -{fmt_k(remaining_debt * 2)}).")
+                if comp["history"]: comp["history"][-1]["net_income"] -= (remaining_debt * 2)
                     
     save_game(room)
 
@@ -684,7 +619,7 @@ def resolve_turn(room):
 def bot_answer(q):
     q = q.lower()
     if any(w in q for w in ("prix", "tarif", "vendre", "vente")): return "Le Prix dicte vos volumes. Un prix très bas attire les masses mais écrase vos marges. Un prix haut nécessite une qualité irréprochable sous peine de boycott. Attention à l'effet 'Arnaque' si vous descendez sous 40% du prix moyen !"
-    elif any(w in q for w in ("pub", "marketing", "publicite", "pub")): return "La Pub est le stéroïde des ventes. Ciblez entre 7.5% et 15% de votre CA annuel pour exploser vos parts de marché. Attention, l'effet retombe à zéro l'année suivante !"
+    elif any(w in q for w in ("pub", "marketing", "publicite")): return "La Pub est le stéroïde des ventes. Ciblez entre 7.5% et 15% de votre CA annuel pour exploser vos parts de marché. Attention, l'effet retombe à zéro l'année suivante !"
     elif any(w in q for w in ("qualité", "qualite", "défaut")): return "La Qualité fidélise (cible: 0.5% à 2.5% du CA). DANGER : Exiger une qualité stricte RALENTIT considérablement la cadence de vos ouvriers ! Formez-les pour compenser."
     elif any(w in q for w in ("rse", "ecologie", "écologie", "social")): return "La RSE construit une clientèle fidèle de manière permanente. Contrairement à la pub, ses effets se cumulent. (Cible: 2% à 5% du CA). C'est le meilleur investissement long terme."
     elif any(w in q for w in ("rh", "employé", "employe", "salarié")): return "Vos employés travaillent 1600h. Leur vitesse est modifiée par : 1) Salaire (Motivation) 2) Formation (Accélération) 3) Qualité (Ralentissement). Ne les payez jamais au SMIC (21k) !"
@@ -752,13 +687,21 @@ if not st.session_state.room_code:
                 else:
                     room_code = f"SALON-{random.randint(1000,9999)}"
                     product = random.choice(PRODUCT_UNIVERSES)
-                    market_growths = {str(y): round(random.uniform(0.05, 0.33), 2) for y in range(1, num_years + 1)}
+                    
+                    # NOUVEAU : Génération des croissances de marché et contextes annuels textuels ultra-détaillés
+                    market_growths = {str(y): round(random.uniform(-0.15, 0.35), 2) for y in range(1, num_years + 1)}
+                    market_growths["1"] = round(random.uniform(0.05, 0.20), 2) # L'année 1 est toujours un peu positive pour bien démarrer
+                    
+                    yearly_contexts = {str(y): generate_yearly_context_text(market_growths[str(y)], y) for y in range(1, num_years + 1)}
+                    
                     room = {
                         "room_code": room_code, "host": host_name.strip(), "product": product,
                         "scenario": generate_scenario(product),
                         "max_years": num_years, "current_year": 1, "status": "waiting",
                         "start_capital": capital_k * 1000.0, "companies": {}, "ready_teams": [],
-                        "market_growths": market_growths, "turn_deadline": None
+                        "market_growths": market_growths, 
+                        "yearly_contexts": yearly_contexts, # NOUVEAU
+                        "turn_deadline": None
                     }
                     room["companies"][host_name.strip()] = init_company(host_name.strip(), room["start_capital"], product)
                     GAMES[room_code] = room
@@ -796,7 +739,11 @@ else:
     if room["status"] == "waiting":
         st.title("🏠 Salle d'attente")
         st.info(f"👉 Code à partager : **{room['room_code']}**")
-        st.markdown(f"### 📰 Contexte Mondial :\n{room['scenario']}")
+        
+        # NOUVEAU : Affichage détaillé du contexte + contexte de l'Année 1
+        st.markdown(f"### 📰 Contexte Mondial & Scénario\n")
+        st.info(room['scenario'])
+        st.markdown(room['yearly_contexts']["1"], unsafe_allow_html=True)
         
         p_team = st.session_state.player_team
         if p_team in room["companies"]:
@@ -814,8 +761,7 @@ else:
         
     else:
         st.sidebar.markdown(f"**🔑 Salon:** `{room['room_code']}` | **📅 Année:** {room['current_year']}/{room['max_years']}")
-        market_g = room.get("market_growths", {}).get(str(room["current_year"]), 0.15)
-        st.sidebar.markdown(f"📈 **Croissance du Marché :** `+{int(market_g*100)}%`")
+        market_g = room.get("market_growths", {}).get(str(room["current_year"]), 0.0)
         
         if st.sidebar.button("Déconnexion"):
             st.session_state.room_code = None
@@ -851,6 +797,11 @@ else:
         st.markdown(f"<div class='bitlife-subtitle'>CEO: {st.session_state.player_team} | Employés: {comp['employees']} | Stock: {fmt_num(comp['stock'])}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='bitlife-money'>{fmt_k(comp['cash'])}</div>", unsafe_allow_html=True)
         
+        # NOUVEAU : Encart massif d'actualités annuelles dans le grand tableau de bord principal (remplace la petite ligne de la sidebar)
+        if room["status"] == "playing":
+            with st.expander(f"📰 Contexte Économique & État du Marché (Année {room['current_year']})", expanded=True):
+                st.markdown(room["yearly_contexts"][str(room["current_year"])], unsafe_allow_html=True)
+        
         if room.get("turn_deadline") and len(room["ready_teams"]) == num_teams - 1 and room["status"] == "playing":
             time_left = int(room["turn_deadline"] - time.time())
             if time_left > 0:
@@ -867,18 +818,15 @@ else:
             final_list = [{"Équipe": n, "Valeur Nette Est.": (c["cash"] + c["stock"] * product["base_cost"] * 0.5) / 1000.0} for n, c in room["companies"].items()]
             st.table(pd.DataFrame(final_list).sort_values(by="Valeur Nette Est.", ascending=False).style.format({"Valeur Nette Est.": "{:,.1f} K€"}))
 
-        # Les 5 onglets principaux du Menu
         t_log, t_dec, t_prev, t_treso, t_audit = st.tabs(["📜 Journal", "💼 Activités", "📈 Prévisions", "🏦 Tréso", "🕵️ Audit"])
         
         sim_key = f"sim_{selected_team}_{room['current_year']}"
         frozen = comp.get("frozen_fields", [])
         if sim_key not in st.session_state: st.session_state[sim_key] = get_default_decs(comp, product)
 
-        # Calculer les prévisions pour alimenter les jauges Bitlife
         forecast = calculate_forecast(comp, st.session_state[sim_key], product, is_prod_phase, num_teams, market_g)
 
         with t_log:
-            # Rendu des jauges de performance façon Bitlife
             st.markdown("### Profil de l'Entreprise")
             
             motiv = forecast["hr_metrics"]["motivation"]
@@ -1046,27 +994,12 @@ else:
             c_esp, c_sab, c_def = st.columns(3)
             with c_esp:
                 st.markdown("#### 1. Espionnage Industriel")
-                
-                # Correction de la syntaxe pour le selectbox espionnage
                 esp_options = [0, 1, 2, 3, 4]
-                esp_labels = {
-                    0: "0€ - Aucun",
-                    1: "5 K€ - Rapport Ventes",
-                    2: "20 K€ - Rapport Budgets",
-                    3: "50 K€ - Rapport Trésorerie",
-                    4: "100 K€ - Audit Comparatif Général"
-                }
+                esp_labels = {0: "0€ - Aucun", 1: "5 K€ - Rapport Ventes", 2: "20 K€ - Rapport Budgets", 3: "50 K€ - Rapport Trésorerie", 4: "100 K€ - Audit Comparatif Général"}
                 
                 esp_index = st.session_state[sim_key].get("espionnage", 0)
-                if esp_index not in esp_options:
-                    esp_index = 0
-                    
-                esp = st.selectbox(
-                    "Niveau d'infiltration",
-                    options=esp_options,
-                    index=esp_options.index(esp_index),
-                    format_func=lambda x: esp_labels.get(x, "Inconnu")
-                )
+                if esp_index not in esp_options: esp_index = 0
+                esp = st.selectbox("Niveau d'infiltration", options=esp_options, index=esp_options.index(esp_index), format_func=lambda x: esp_labels.get(x, "Inconnu"))
                 
                 if esp != st.session_state[sim_key]["espionnage"]:
                     st.session_state[sim_key]["espionnage"] = esp
@@ -1074,27 +1007,12 @@ else:
 
             with c_sab:
                 st.markdown("#### 2. Sabotage Offensif")
-                
-                # Correction de la syntaxe pour le selectbox sabotage
                 sab_options = [0, 1, 2, 3]
-                sab_labels = {
-                    0: "0€ - Pas d'attaque",
-                    1: "200 K€ - Aveugle (Aléatoire)",
-                    2: "300 K€ - Cible spécifique",
-                    3: "500 K€ - Chirurgicale (Cible+Dossier)"
-                }
+                sab_labels = {0: "0€ - Pas d'attaque", 1: "200 K€ - Aveugle (Aléatoire)", 2: "300 K€ - Cible spécifique", 3: "500 K€ - Chirurgicale (Cible+Dossier)"}
                 
                 sab_index = st.session_state[sim_key].get("sabotage_type", 0)
-                if sab_index not in sab_options:
-                    sab_index = 0
-                
-                s_type = st.selectbox(
-                    "Type d'attaque cyber/terrain",
-                    options=sab_options,
-                    index=sab_options.index(sab_index),
-                    format_func=lambda x: sab_labels.get(x, "Inconnu"),
-                    disabled=(room["current_year"] == 1)
-                )
+                if sab_index not in sab_options: sab_index = 0
+                s_type = st.selectbox("Type d'attaque cyber/terrain", options=sab_options, index=sab_options.index(sab_index), format_func=lambda x: sab_labels.get(x, "Inconnu"), disabled=(room["current_year"] == 1))
                 
                 other_teams = [t for t in room["companies"].keys() if t != selected_team]
                 if s_type != st.session_state[sim_key]["sabotage_type"]:
@@ -1105,7 +1023,6 @@ else:
                     current_target = st.session_state[sim_key].get("sabotage_target", "")
                     idx_t = other_teams.index(current_target) if current_target in other_teams else 0
                     s_target = st.selectbox("🎯 Entreprise ciblée", options=other_teams, index=idx_t)
-                    
                     if s_target != st.session_state[sim_key].get("sabotage_target", ""):
                         st.session_state[sim_key]["sabotage_target"] = s_target
                         st.rerun()
@@ -1114,17 +1031,8 @@ else:
                     s_action_names = ["Prix", "Pub", "Qualité", "R&D", "RSE", "Délai Clients", "Délai Fournisseurs"]
                     current_action = st.session_state[sim_key].get("sabotage_action_name", "Prix")
                     idx_a = s_action_names.index(current_action) if current_action in s_action_names else 0
-                    
                     s_act_name = st.selectbox("🎯 Quel pôle paralyser ?", options=s_action_names, index=idx_a)
-                    s_act_map = {
-                        "Prix": "price", 
-                        "Pub": "marketing", 
-                        "Qualité": "quality", 
-                        "R&D": "rd_budget", 
-                        "RSE": "rse_budget", 
-                        "Délai Clients": "client_terms", 
-                        "Délai Fournisseurs": "supplier_terms"
-                    }
+                    s_act_map = {"Prix": "price", "Pub": "marketing", "Qualité": "quality", "R&D": "rd_budget", "RSE": "rse_budget", "Délai Clients": "client_terms", "Délai Fournisseurs": "supplier_terms"}
                     s_act = s_act_map[s_act_name]
                     
                     if s_act != st.session_state[sim_key].get("sabotage_action", ""):
@@ -1134,39 +1042,16 @@ else:
 
             with c_def:
                 st.markdown("#### 3. Bouclier Défensif")
-                
-                # L'erreur de parenthèses / crochets est réglée ici !
                 d_target_options = ["Aucune", "Prix", "Pub", "Qualité", "R&D", "RSE"]
                 current_d_target = st.session_state[sim_key].get("defense_target", "Aucune")
-                
-                if current_d_target not in d_target_options:
-                    current_d_target = "Aucune"
-                    
-                d_target = st.selectbox(
-                    "Pôle à surveiller",
-                    options=d_target_options,
-                    index=d_target_options.index(current_d_target)
-                )
+                if current_d_target not in d_target_options: current_d_target = "Aucune"
+                d_target = st.selectbox("Pôle à surveiller", options=d_target_options, index=d_target_options.index(current_d_target))
                 
                 d_level_options = [0, 500000, 1000000, 1500000, 2000000]
-                d_level_labels = {
-                    0: "0€ (Pas de bouclier)",
-                    500000: "500 K€ (25% chance blocage)",
-                    1000000: "1 M€ (50% chance)",
-                    1500000: "1.5 M€ (75% chance)",
-                    2000000: "2 M€ (Imparable)"
-                }
-                
+                d_level_labels = {0: "0€ (Pas de bouclier)", 500000: "500 K€ (25% chance blocage)", 1000000: "1 M€ (50% chance)", 1500000: "1.5 M€ (75% chance)", 2000000: "2 M€ (Imparable)"}
                 current_d_level = st.session_state[sim_key].get("defense_level", 0)
-                if current_d_level not in d_level_options:
-                    current_d_level = 0
-                    
-                d_level = st.selectbox(
-                    "Budget Cybersécurité",
-                    options=d_level_options,
-                    index=d_level_options.index(current_d_level),
-                    format_func=lambda x: d_level_labels.get(x, "Inconnu")
-                )
+                if current_d_level not in d_level_options: current_d_level = 0
+                d_level = st.selectbox("Budget Cybersécurité", options=d_level_options, index=d_level_options.index(current_d_level), format_func=lambda x: d_level_labels.get(x, "Inconnu"))
                 
                 if d_target != st.session_state[sim_key].get("defense_target", "Aucune") or d_level != st.session_state[sim_key].get("defense_level", 0):
                     st.session_state[sim_key]["defense_target"] = d_target
